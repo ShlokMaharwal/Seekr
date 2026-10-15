@@ -9,35 +9,50 @@ No Elasticsearch, Lucene, or Meilisearch. Every algorithm is implemented by hand
 
 ```mermaid
 graph TD
-    subgraph "Crawler Workers (scalable)"
-        CW[Worker Process]
-        CW -->|fetch HTML| HTTP[HTTP Fetcher]
-        HTTP -->|parse| PARSER[HTML Parser]
-        PARSER -->|upsert| MONGO[(MongoDB)]
-        PARSER -->|enqueue links| FRONTIER[URL Frontier]
-        FRONTIER -->|Redis lists| REDIS[(Redis)]
-        CW -->|publish doc| STREAM[Redis Stream\nstream:new-docs]
+    subgraph Crawler["Crawler Workers"]
+        CW["Worker Process"]
+        HTTP["HTTP Fetcher"]
+        PARSER["HTML Parser"]
+        MONGO[("MongoDB")]
+        FRONTIER["URL Frontier"]
+        REDIS[("Redis")]
+        STREAM[("Redis Stream: stream:new-docs")]
+
+        CW -->|fetch HTML| HTTP
+        HTTP -->|parse| PARSER
+        PARSER -->|upsert| MONGO
+        PARSER -->|enqueue links| FRONTIER
+        FRONTIER -->|queues| REDIS
+        CW -->|publish document| STREAM
     end
 
-    subgraph "API Process"
-        INDEXER[Indexer Consumer] -->|XREADGROUP| STREAM
-        INDEXER -->|addDocument| IDX[In-Memory\nInvertedIndex]
-        IDX -->|snapshot| DISK[/data/index.json]
+    subgraph APIProcess["API Process"]
+        INDEXER["Indexer Consumer"]
+        IDX["In-Memory Inverted Index"]
+        DISK["Index Snapshot: index.json"]
+        API["Express API"]
+        TRIE["Trie"]
+        BIGRAM["Bigram Index"]
 
-        API[Express API] -->|scoreBM25/TF-IDF| IDX
-        API -->|suggest| TRIE[Trie]
-        API -->|didYouMean| BIGRAM[Bigram Index]
-        API -->|cache get/set| REDIS
-        API -->|findById| MONGO
+        INDEXER -->|addDocument| IDX
+        IDX -->|save snapshot| DISK
+        API -->|score BM25 or TF-IDF| IDX
+        API -->|autocomplete| TRIE
+        API -->|spell correction| BIGRAM
+        API -->|cache queries| REDIS
+        API -->|fetch documents| MONGO
+        STREAM -->|consume events| INDEXER
     end
 
-    subgraph "Frontend"
-        UI[React App\nlocalhost:5173] -->|REST| API
+    subgraph Frontend["Frontend"]
+        UI["React App"]
+        UI -->|REST requests| API
     end
 
-    subgraph "Admin"
-        ADMIN[POST /admin/crawl/start] -->|crawl:control key| REDIS
-        REDIS -->|poll| CW
+    subgraph Admin["Admin Controls"]
+        ADMIN["POST /admin/crawl/start"]
+        ADMIN -->|crawl control| REDIS
+        REDIS -->|poll control| CW
     end
 ```
 
