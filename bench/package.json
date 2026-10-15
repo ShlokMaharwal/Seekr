@@ -1,0 +1,11 @@
+{
+  "name": "@seekr/bench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "search": "node search-bench.js",
+    "ranker-compare": "node ranker-compare.js",
+    "crawl": "node crawl-bench.js"
+  }
+}

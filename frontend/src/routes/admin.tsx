@@ -1,0 +1,5 @@
+import { createFileRoute } from '@tanstack/react-router';
+import { Dashboard } from '@/frontend/dashboard';
+import { Failure } from '@/frontend/shell';
+import { statsOptions, feedOptions, metricsOptions } from '@/frontend/api';
+export const Route=createFileRoute('/admin')({loader:async({context})=>{await Promise.all([context.queryClient.ensureQueryData(statsOptions),context.queryClient.ensureQueryData(feedOptions),context.queryClient.ensureQueryData(metricsOptions)]);},head:()=>({meta:[{title:'Index dashboard — Seekr'},{name:'description',content:'Monitor the Seekr search index, control crawling, and inspect query performance.'},{property:'og:title',content:'Index dashboard — Seekr'},{property:'og:description',content:'Live crawler activity, index health, and search performance at a glance.'},{property:'og:type',content:'website'},{name:'twitter:card',content:'summary_large_image'}]}),component:Dashboard,errorComponent:({error,reset})=><Failure message={error instanceof Error?error.message:'This page could not be loaded.'} retry={reset}/>});
