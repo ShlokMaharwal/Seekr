@@ -50,14 +50,26 @@ describe('tokenizer', () => {
       expect(raws).not.toContain('the');
     });
 
-    it('assigns sequential positions after stopword removal', () => {
+    it('preserves word stream positions when removing stopwords', () => {
+      // "cats and dogs are great"
+      // pos 0: cats, pos 1: and (stopword), pos 2: dogs, pos 3: are (stopword), pos 4: great
       const tokens = tokenize('cats and dogs are great');
-      // "and" and "are" are stopwords
-      const terms = tokens.map((t) => t.term);
-      expect(terms.length).toBeGreaterThan(0);
-      for (let i = 0; i < tokens.length; i++) {
-        expect(tokens[i]!.position).toBe(i);
-      }
+      expect(tokens).toHaveLength(3);
+      expect(tokens[0]!.raw).toBe('cats');
+      expect(tokens[0]!.position).toBe(0);
+      expect(tokens[1]!.raw).toBe('dogs');
+      expect(tokens[1]!.position).toBe(2);
+      expect(tokens[2]!.raw).toBe('great');
+      expect(tokens[2]!.position).toBe(4);
+    });
+
+    it('counts removed stopwords in "binary the tree"', () => {
+      const tokens = tokenize('binary the tree');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0]!.raw).toBe('binary');
+      expect(tokens[0]!.position).toBe(0);
+      expect(tokens[1]!.raw).toBe('tree');
+      expect(tokens[1]!.position).toBe(2);
     });
 
     it('returns empty array for all-stopword input', () => {

@@ -200,8 +200,15 @@ export function tokenize(
   let position = 0;
 
   for (const word of raw) {
-    if (removeStop && STOPWORDS.has(word)) continue;
     if (word.length === 0) continue;
+    // When stopwords are removed, we still increment position so relative token
+    // distances accurately reflect original word positions in the text.
+    // This ensures phrase queries like "binary the tree" vs "binary tree"
+    // are distinguished properly by term positions.
+    if (removeStop && STOPWORDS.has(word)) {
+      position++;
+      continue;
+    }
     const term = stemFn(word);
     tokens.push({ term, raw: word, position });
     position++;

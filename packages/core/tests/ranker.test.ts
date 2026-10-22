@@ -106,3 +106,69 @@ describe('MinHeap top-K behavior', () => {
     expect(results).toHaveLength(1);
   });
 });
+
+describe('Hand-calculated Reference Verification', () => {
+  let refIndex: InvertedIndex;
+
+  beforeEach(() => {
+    refIndex = createIndex();
+    // doc1: "cat dog" (2 tokens: |d1| = 2)
+    addDocument(refIndex, 'doc1', 'cat dog', 'Cat and Dog', 'http://example.com/1');
+    // doc2: "cat cat fish" (3 tokens: |d2| = 3)
+    addDocument(refIndex, 'doc2', 'cat cat fish', 'Two Cats and Fish', 'http://example.com/2');
+    // N = 2, avgDocLen = (2 + 3) / 2 = 2.5
+  });
+
+  it('verifies BM25 scores against hand-computed reference values', () => {
+    // Expected scores calculated by hand:
+    // N = 2, avgdl = 2.5, k1 = 1.2, b = 0.75
+    // Query: "cat", df("cat") = 2
+    // idf("cat") = ln((2 - 2 + 0.5) / (2 + 0.5) + 1) = ln(1.2) ≈ 0.1823215568
+    // doc1 (tf=1, len=2): tfNorm = 2.2 / (1 + 1.2 * (0.25 + 0.75 * 0.8)) = 2.2 / 2.02 ≈ 1.0891089
+    // Expected doc1 score: 0.1823215568 * 1.0891089 ≈ 0.198568
+    // doc2 (tf=2, len=3): tfNorm = 4.4 / (2 + 1.2 * (0.25 + 0.75 * 1.2)) = 4.4 / 3.38 ≈ 1.3017751
+    // Expected doc2 score: 0.1823215568 * 1.3017751 ≈ 0.237342
+    const results = scoreBM25(refIndex, ['cat'], 10);
+    expect(results).toHaveLength(2);
+
+    const doc2 = results.find((r) => r.docId === 'doc2');
+    const doc1 = results.find((r) => r.docId === 'doc1');
+    expect(doc1).toBeDefined();
+    expect(doc2).toBeDefined();
+
+    expect(doc1!.score).toBeCloseTo(0.198568, 4);
+    expect(doc2!.score).toBeCloseTo(0.237342, 4);
+
+    // Multi-term query: "cat fish"
+    // doc2 contains "fish" (df=1, tf=1, len=3)
+    // idf("fish") = ln((2 - 1 + 0.5)/(1 + 0.5) + 1) = ln(2) ≈ 0.693147
+    // tfNorm = 2.2 / (1 + 1.2 * 1.15) = 2.2 / 2.38 ≈ 0.924370
+    // score("fish", doc2) = ln(2) * 2.2 / 2.38 ≈ 0.640724
+    // total doc2 score = 0.237342 + 0.640724 ≈ 0.878066
+    const multiResults = scoreBM25(refIndex, ['cat', 'fish'], 10);
+    const multiDoc2 = multiResults.find((r) => r.docId === 'doc2');
+    expect(multiDoc2!.score).toBeCloseTo(0.878066, 4);
+  });
+
+  it('verifies TF-IDF scores against hand-computed reference values', () => {
+    // Expected scores calculated by hand:
+    // N = 2, df("cat") = 2
+    // idf("cat") = ln((2 + 1) / (2 + 1)) + 1 = 1.0
+    // doc1 (tf=1): tfWeight = 1 + ln(1) = 1.0 => score = 1.0 * 1.0 = 1.0
+    // doc2 (tf=2): tfWeight = 1 + ln(2) ≈ 1.693147 => score = 1.693147 * 1.0 = 1.693147
+    const results = scoreTFIDF(refIndex, ['cat'], 10);
+    expect(results).toHaveLength(2);
+
+    const doc1 = results.find((r) => r.docId === 'doc1');
+    const doc2 = results.find((r) => r.docId === 'doc2');
+    expect(doc1!.score).toBeCloseTo(1.0, 5);
+    expect(doc2!.score).toBeCloseTo(1.693147, 5);
+
+    // Multi-term query: "cat fish"
+    // df("fish") = 1 => idf("fish") = ln(3 / 2) + 1 = ln(1.5) + 1 ≈ 1.405465
+    // doc2: "cat" score (1.693147) + "fish" score (1.0 * 1.405465) = 3.098612
+    const multiResults = scoreTFIDF(refIndex, ['cat', 'fish'], 10);
+    const multiDoc2 = multiResults.find((r) => r.docId === 'doc2');
+    expect(multiDoc2!.score).toBeCloseTo(3.098612, 5);
+  });
+});

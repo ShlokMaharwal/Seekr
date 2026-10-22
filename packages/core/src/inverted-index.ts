@@ -75,7 +75,7 @@ export function addDocument(
   index.docs.set(docId, { docId, length, title, url });
 
   // Update corpus stats
-  const prevTotal = index.N * index.avgDocLen;
+  const prevTotal = Math.round(index.N * index.avgDocLen);
   index.N += 1;
   index.avgDocLen = (prevTotal + length) / index.N;
 }
@@ -88,7 +88,7 @@ export function removeDocument(index: InvertedIndex, docId: string): void {
   const meta = index.docs.get(docId);
   if (meta === undefined) return;
 
-  const prevTotal = index.N * index.avgDocLen;
+  const prevTotal = Math.round(index.N * index.avgDocLen);
   index.N -= 1;
   index.avgDocLen = index.N > 0 ? (prevTotal - meta.length) / index.N : 0;
   index.docs.delete(docId);

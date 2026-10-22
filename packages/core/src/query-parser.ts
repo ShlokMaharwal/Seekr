@@ -103,11 +103,23 @@ function segmentToClause(segment: string): QueryClause | null {
   if (segment.startsWith('"') && segment.endsWith('"')) {
     // Phrase query
     const inner = segment.slice(1, -1);
-    // Tokenize phrase terms WITHOUT stopword removal so positions stay intact
-    const tokens = tokenize(inner, undefined, false);
+    // Tokenize phrase terms with stopword removal while tracking relative token positions.
+    // If all terms are stopwords, fall back to retaining them.
+    let tokens = tokenize(inner, undefined, true);
+    if (tokens.length === 0) {
+      tokens = tokenize(inner, undefined, false);
+    }
     if (tokens.length === 0) return null;
     if (tokens.length === 1) return { type: 'term', value: tokens[0]!.term };
-    return { type: 'phrase', tokens: tokens.map((t) => t.term) };
+
+    // Calculate offsets relative to the first token's position
+    const basePos = tokens[0]!.position;
+    const offsets = tokens.map((t) => t.position - basePos);
+    return {
+      type: 'phrase',
+      tokens: tokens.map((t) => t.term),
+      offsets,
+    };
   }
 
   // Plain term
@@ -152,20 +164,22 @@ export function extractTerms(clause: QueryClause): string[] {
 
 /**
  * Verify that a document's posting lists contain the phrase's terms
- * in consecutive positions.
+ * at the specified relative position offsets.
  *
  * Algorithm:
  *   For the first phrase token, collect all positions in the document.
- *   For each candidate start position p, check that position p+i exists
+ *   For each candidate start position p, check that position p + offsets[i] exists
  *   in the posting for phrase token i (for i=1,2,...).
  *
- * This uses the positional information stored in each Posting, making it
- * O(|positions|) per document rather than scanning the full text.
+ * @param phraseStemmed Stemmed terms of the phrase.
+ * @param docPositions  Map from term → positions for a single document.
+ * @param offsets       Relative offsets from the first term (defaults to consecutive [0, 1, 2, ...]).
  */
 export function phraseMatchesDoc(
   phraseStemmed: string[],
   /** Map from term → positions for a single document */
   docPositions: Map<string, number[]>,
+  offsets?: number[],
 ): boolean {
   if (phraseStemmed.length === 0) return false;
 
@@ -174,12 +188,15 @@ export function phraseMatchesDoc(
   const firstPositions = docPositions.get(firstTerm);
   if (firstPositions === undefined || firstPositions.length === 0) return false;
 
+  const posOffsets = offsets ?? phraseStemmed.map((_, i) => i);
+
   // Build position sets for fast lookup
   const posSets = phraseStemmed.map((t) => new Set(docPositions.get(t) ?? []));
 
   outer: for (const startPos of firstPositions) {
     for (let i = 1; i < phraseStemmed.length; i++) {
-      if (!(posSets[i] as Set<number>).has(startPos + i)) {
+      const targetPos = startPos + (posOffsets[i] ?? i);
+      if (!(posSets[i] as Set<number>).has(targetPos)) {
         continue outer;
       }
     }

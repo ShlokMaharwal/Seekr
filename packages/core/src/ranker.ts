@@ -96,11 +96,16 @@ export function scoreBM25(
 
     for (const { docId, tf } of getPostings(index, term)) {
       const docLen = docs.get(docId)?.length ?? avgDocLen;
+      // Guard against division by zero if corpus has 0 tokens or documents
+      const safeAvgDocLen = avgDocLen > 0 ? avgDocLen : 1;
 
-      // Length-normalized TF saturation
+      // Length-normalized TF saturation (Robertson et al.):
+      // - (1 - b + b * (|d| / avgdl)) modulates how heavily document length penalizes the score.
+      // - When |d| == avgdl, the length multiplier is exactly 1.
+      // - Higher k1 increases the score boost from multiple occurrences before reaching saturation.
       const tfNorm =
         (tf * (k1 + 1)) /
-        (tf + k1 * (1 - b + b * (docLen / avgDocLen)));
+        (tf + k1 * (1 - b + b * (docLen / safeAvgDocLen)));
 
       scores.set(docId, (scores.get(docId) ?? 0) + idf * tfNorm);
     }

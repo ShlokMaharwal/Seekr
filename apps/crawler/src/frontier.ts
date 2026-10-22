@@ -1,23 +1,20 @@
 /**
- * URL Frontier – Redis-backed per-domain URL queues
+ * URL Frontier – Redis-backed per-domain URL queues with reliable-queue processing
  *
  * Design:
- *   - Each domain gets its own Redis list: "frontier:<domain>"
+ *   - Each domain gets its own Redis list: "frontier:queue:<domain>"
  *   - A global sorted set "frontier:domains" tracks domains with pending URLs,
- *     scored by their next-allowed-crawl timestamp (Unix ms). This enforces
- *     per-domain politeness delays without a centralized scheduler.
+ *     scored by their next-allowed-crawl timestamp (Unix ms).
  *   - A Redis set "frontier:seen" holds all enqueued/crawled URL hashes to
  *     prevent duplicates before fetching.
- *
- * Politeness:
- *   When a domain is dequeued for processing, its next-allowed timestamp is
- *   updated to `now + delayMs`. The worker waits until that time before
- *   fetching the next URL from the same domain.
+ *   - A per-worker sorted set "frontier:processing:<workerId>" holds currently
+ *     active URLs with their checkout timestamp. If a worker dies, a reaper
+ *     re-enqueues abandoned URLs.
  *
  * Concurrency safety:
- *   All read-modify-write operations (peek domain, pop URL, update timestamp)
- *   are wrapped in a Lua script executed atomically by Redis, so multiple
- *   worker processes cannot crawl the same URL twice.
+ *   All read-modify-write operations (peek domain, pop URL, update delay timestamp,
+ *   and record in worker processing set) are wrapped in a Lua script executed atomically
+ *   by Redis. This guarantees two workers can never crawl the same URL.
  */
 
 import crypto from 'crypto';
@@ -39,14 +36,20 @@ function domainKey(domain: string): string {
   return `frontier:queue:${domain}`;
 }
 
+export function processingKey(workerId: string): string {
+  return `frontier:processing:${workerId}`;
+}
+
 function urlHash(url: string): string {
   return crypto.createHash('sha1').update(url).digest('hex');
 }
 
 // ---------------------------------------------------------------------------
-// Lua script: atomically pop the next due URL from any ready domain.
+// Lua script: atomically pop the next due URL and move it to the worker's
+// processing set with the checkout timestamp.
 //
 // KEYS[1] = K_DOMAINS (ZSET)
+// KEYS[2] = processingKey (ZSET: payload -> timestamp)
 // ARGV[1] = current timestamp (ms)
 // ARGV[2] = new delay timestamp (next allowed = now + delayMs)
 //
@@ -55,11 +58,13 @@ function urlHash(url: string): string {
 const POP_SCRIPT = `
 local now = tonumber(ARGV[1])
 local next_ts = tonumber(ARGV[2])
+
 -- Get the domain with the lowest score (earliest next-allowed time)
 local items = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', now, 'LIMIT', 0, 1)
 if #items == 0 then return nil end
 local domain = items[1]
 local qkey = 'frontier:queue:' .. domain
+
 -- Pop the next URL from this domain's queue
 local url = redis.call('LPOP', qkey)
 if url == nil or url == false then
@@ -67,13 +72,19 @@ if url == nil or url == false then
   redis.call('ZREM', KEYS[1], domain)
   return nil
 end
--- Check if more URLs remain; if so, reschedule; otherwise remove
+
+-- Check if more URLs remain; if so, reschedule domain; otherwise remove
 local remaining = redis.call('LLEN', qkey)
 if remaining > 0 then
   redis.call('ZADD', KEYS[1], next_ts, domain)
 else
   redis.call('ZREM', KEYS[1], domain)
 end
+
+-- Record in reliable worker processing set with current timestamp
+local payload = cjson.encode({url = url, domain = domain})
+redis.call('ZADD', KEYS[2], now, payload)
+
 return {domain, url}
 `;
 
@@ -114,24 +125,75 @@ export class UrlFrontier {
   }
 
   /**
-   * Atomically dequeue the next URL from any domain whose politeness delay
-   * has elapsed. Returns null if no URL is currently available.
+   * Atomically dequeue the next URL from any eligible domain and add it
+   * to the worker's processing set. Returns null if no URL is currently available.
    */
-  async dequeue(): Promise<{ url: string; domain: string } | null> {
+  async dequeue(workerId = 'default'): Promise<{ url: string; domain: string } | null> {
     const now = Date.now();
     const nextTs = now + this.delayMs;
 
-    const result = await this.redis.eval(
+    const result = (await this.redis.eval(
       this.script,
-      1,
+      2,
       K_DOMAINS,
+      processingKey(workerId),
       String(now),
       String(nextTs),
-    ) as [string, string] | null;
+    )) as [string, string] | null;
 
     if (result == null) return null;
     await this.redis.decr(K_STATS_QUEUE);
     return { domain: result[0] as string, url: result[1] as string };
+  }
+
+  /**
+   * Remove a URL from the worker's processing set when processing completes.
+   */
+  async complete(workerId: string, url: string, domain: string): Promise<void> {
+    const payload = JSON.stringify({ url, domain });
+    await this.redis.zrem(processingKey(workerId), payload);
+  }
+
+  /**
+   * Scan for abandoned processing entries across workers whose checkout timestamp
+   * is older than staleTimeoutMs, and re-enqueue them for processing.
+   */
+  async reapStale(staleTimeoutMs = 60_000): Promise<number> {
+    const now = Date.now();
+    const cutoff = now - staleTimeoutMs;
+    let reapedCount = 0;
+
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        'frontier:processing:*',
+        'COUNT',
+        50,
+      );
+      cursor = nextCursor;
+
+      for (const pKey of keys) {
+        const staleMembers = await this.redis.zrangebyscore(pKey, '-inf', cutoff);
+        for (const raw of staleMembers) {
+          try {
+            const parsed = JSON.parse(raw) as { url: string; domain: string };
+            // Re-enqueue the URL at the front of its domain queue
+            await this.redis.lpush(domainKey(parsed.domain), parsed.url);
+            await this.redis.zadd(K_DOMAINS, 'NX', 0, parsed.domain);
+            await this.redis.incr(K_STATS_QUEUE);
+            await this.redis.zrem(pKey, raw);
+            reapedCount++;
+            logger.warn({ url: parsed.url, domain: parsed.domain, workerKey: pKey }, 'Reaped stale URL from crashed/stuck worker');
+          } catch {
+            await this.redis.zrem(pKey, raw);
+          }
+        }
+      }
+    } while (cursor !== '0');
+
+    return reapedCount;
   }
 
   /** Total number of URLs waiting in all domain queues. */
@@ -181,6 +243,23 @@ export class UrlFrontier {
     pipeline.del(K_DOMAINS);
     pipeline.del(K_SEEN);
     pipeline.set(K_STATS_QUEUE, '0');
+
+    // Also remove any worker processing queues
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        'frontier:processing:*',
+        'COUNT',
+        100,
+      );
+      cursor = nextCursor;
+      for (const k of keys) {
+        pipeline.del(k);
+      }
+    } while (cursor !== '0');
+
     await pipeline.exec();
     logger.info('Frontier reset');
   }

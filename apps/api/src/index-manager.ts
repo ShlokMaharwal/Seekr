@@ -6,17 +6,12 @@
  *
  * Lifecycle:
  *   1. On startup, load the index snapshot from disk (if available).
- *   2. Consume the Redis stream "stream:new-docs" for new documents, adding
- *      them incrementally to the in-memory index.
- *   3. Periodically persist the index snapshot to disk.
- *
- * Persistence strategy:
- *   - Snapshot is saved every SNAPSHOT_INTERVAL_MS (default 60s).
- *   - On graceful shutdown, a final snapshot is written.
- *   - The snapshot file path is configurable via INDEX_SNAPSHOT_PATH env var.
+ *   2. If snapshot is missing or empty, rebuild the index from MongoDB by streaming.
+ *   3. Consume the Redis stream "stream:new-docs" for new documents, adding
+ *      them incrementally and idempotently to the in-memory index.
+ *   4. Periodically persist the index snapshot to disk atomically.
  */
 
-import path from 'path';
 import { Redis } from 'ioredis';
 import {
   type InvertedIndex,
@@ -25,12 +20,13 @@ import {
   addDocument,
   buildBigramIndex,
   addTermToBigramIndex,
-  loadOrCreate,
+  loadIndex,
   saveIndex,
   termCount,
   Trie,
 } from '@seekr/core';
 import { logger } from './logger.js';
+import type { DocumentStore } from './store.js';
 
 const INDEXER_STREAM = 'stream:new-docs';
 const SNAPSHOT_INTERVAL_MS = 60_000; // 60 seconds
@@ -46,25 +42,78 @@ export class IndexManager {
 
   private readonly snapshotPath: string;
   private readonly redis: Redis;
+  private readonly store?: DocumentStore | undefined;
   private snapshotTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
-  constructor(redis: Redis) {
+  constructor(redis: Redis, store?: DocumentStore, snapshotPath?: string) {
     this.redis = redis;
-    this.snapshotPath = process.env['INDEX_SNAPSHOT_PATH'] ?? './data/index.json';
+    this.store = store;
+    this.snapshotPath = snapshotPath ?? process.env['INDEX_SNAPSHOT_PATH'] ?? './data/index.json';
   }
 
-  async load(): Promise<void> {
+  /**
+   * Load index from snapshot or rebuild from MongoDB if snapshot is missing/empty/corrupted.
+   */
+  async load(overrideStore?: DocumentStore): Promise<void> {
+    const docStore = overrideStore ?? this.store;
     logger.info({ path: this.snapshotPath }, 'Loading index snapshot');
-    this.index = await loadOrCreate(this.snapshotPath);
+
+    let loaded = false;
+    try {
+      this.index = await loadIndex(this.snapshotPath);
+      loaded = true;
+      logger.info({ terms: termCount(this.index), docs: this.index.N }, 'Index snapshot loaded successfully');
+    } catch (err) {
+      logger.warn({ err, path: this.snapshotPath }, 'Snapshot missing, partial, or corrupted; starting with empty index');
+      this.index = createIndex();
+    }
+
+    // Index recovery: If snapshot is missing or empty, rebuild from MongoDB
+    if (this.index.N === 0 && docStore) {
+      logger.info('Index snapshot is missing or empty. Rebuilding index from MongoDB...');
+      await this.rebuildFromStore(docStore);
+    } else {
+      this.rebuildAuxiliaryStructures();
+    }
+
+    logger.info({ terms: termCount(this.index), docs: this.index.N }, 'Index ready');
+  }
+
+  /**
+   * Rebuild the full index from MongoDB documents by streaming them in batches.
+   */
+  async rebuildFromStore(store: DocumentStore): Promise<void> {
+    logger.info('Starting streaming rebuild from MongoDB');
+    let count = 0;
+    const startTime = Date.now();
+
+    for await (const doc of store.stream()) {
+      this.indexDocument(doc.id, doc.text, doc.title, doc.url);
+      count++;
+      if (count % 500 === 0) {
+        logger.info({ indexed: count }, 'Rebuilding index from MongoDB in progress...');
+      }
+    }
+
+    const elapsed = Date.now() - startTime;
+    logger.info({ totalDocs: count, terms: termCount(this.index), tookMs: elapsed }, 'MongoDB index rebuild complete');
+
+    if (count > 0) {
+      await this.saveSnapshot();
+    }
+  }
+
+  /**
+   * Reconstruct BigramIndex and Trie from existing InvertedIndex postings.
+   */
+  private rebuildAuxiliaryStructures(): void {
     this.bigramIndex = buildBigramIndex(this.index.postings.keys());
-    // Rebuild trie from vocabulary
     for (const term of this.index.postings.keys()) {
       const posting = this.index.postings.get(term);
       const freq = posting?.reduce((s: number, p: { tf: number }) => s + p.tf, 0) ?? 1;
       this.trie.insert(term, freq);
     }
-    logger.info({ terms: termCount(this.index), docs: this.index.N }, 'Index loaded');
   }
 
   async startIndexer(): Promise<void> {
@@ -76,6 +125,9 @@ export class IndexManager {
     } catch {
       // Group already exists — ok
     }
+
+    // Recover pending unacknowledged messages left by crashed consumers
+    await this.recoverPendingMessages();
 
     // Periodic snapshot
     this.snapshotTimer = setInterval(() => {
@@ -93,27 +145,89 @@ export class IndexManager {
     await this.saveSnapshot();
   }
 
+  /**
+   * Recover pending messages left by a previous crashed consumer or pending in the PEL.
+   */
+  async recoverPendingMessages(): Promise<void> {
+    try {
+      // 1. Process pending messages assigned to this consumer
+      const pendingResults = (await this.redis.xreadgroup(
+        'GROUP',
+        CONSUMER_GROUP,
+        CONSUMER_NAME,
+        'COUNT',
+        '100',
+        'STREAMS',
+        INDEXER_STREAM,
+        '0',
+      )) as Array<[string, Array<[string, string[]]>]> | null;
+
+      if (pendingResults) {
+        for (const [, messages] of pendingResults) {
+          for (const [msgId, fields] of messages) {
+            await this.processStreamMessage(msgId, fields);
+          }
+        }
+      }
+
+      // 2. Claim pending messages from other consumers idle for > 30s using XAUTOCLAIM
+      try {
+        const claimResult = (await (this.redis as unknown as {
+          xautoclaim: (
+            stream: string,
+            group: string,
+            consumer: string,
+            minIdleTime: number,
+            start: string,
+            countKeyword: string,
+            count: number,
+          ) => Promise<[string, Array<[string, string[]]>, string[]]>;
+        }).xautoclaim(
+          INDEXER_STREAM,
+          CONSUMER_GROUP,
+          CONSUMER_NAME,
+          30000,
+          '0-0',
+          'COUNT',
+          100,
+        )) as [string, Array<[string, string[]]>, string[]] | null;
+
+        if (claimResult && claimResult[1] && claimResult[1].length > 0) {
+          logger.info({ count: claimResult[1].length }, 'Claimed abandoned pending messages via XAUTOCLAIM');
+          for (const [msgId, fields] of claimResult[1]) {
+            await this.processStreamMessage(msgId, fields);
+          }
+        }
+      } catch (err) {
+        logger.debug({ err }, 'XAUTOCLAIM not supported or completed with error');
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Error recovering pending messages at startup');
+    }
+  }
+
   private async consumeLoop(): Promise<void> {
     while (this.running) {
       try {
         // Read up to 20 messages, block for 1 second if stream is empty
-        const results = await this.redis.xreadgroup(
-          'GROUP', CONSUMER_GROUP, CONSUMER_NAME,
-          'COUNT', '20',
-          'BLOCK', '1000',
-          'STREAMS', INDEXER_STREAM, '>',
-        ) as Array<[string, Array<[string, string[]]>]> | null;
+        const results = (await this.redis.xreadgroup(
+          'GROUP',
+          CONSUMER_GROUP,
+          CONSUMER_NAME,
+          'COUNT',
+          '20',
+          'BLOCK',
+          '1000',
+          'STREAMS',
+          INDEXER_STREAM,
+          '>',
+        )) as Array<[string, Array<[string, string[]]>]> | null;
 
         if (!results) continue;
 
         for (const [, messages] of results) {
           for (const [msgId, fields] of messages) {
-            const doc = parseStreamMessage(fields);
-            if (doc) {
-              this.indexDocument(doc.id, doc.text, doc.title, doc.url);
-              // Acknowledge the message
-              await this.redis.xack(INDEXER_STREAM, CONSUMER_GROUP, msgId);
-            }
+            await this.processStreamMessage(msgId, fields);
           }
         }
       } catch (err) {
@@ -124,22 +238,63 @@ export class IndexManager {
   }
 
   /**
-   * Incrementally add one document to the index.
-   * Updates postings, bigram index, and trie.
+   * Process a single stream message with dead-letter queue (DLQ) support for poison messages.
+   */
+  async processStreamMessage(msgId: string, fields: string[]): Promise<void> {
+    const doc = parseStreamMessage(fields);
+    if (doc) {
+      this.indexDocument(doc.id, doc.text, doc.title, doc.url);
+      await this.redis.xack(INDEXER_STREAM, CONSUMER_GROUP, msgId);
+    } else {
+      // Poison message: fails to parse. Move to dead-letter stream, log, and acknowledge
+      logger.warn({ msgId, fields }, 'Poison message in stream: failed to parse, moving to DLQ and acknowledging');
+      try {
+        await this.redis.xadd(
+          `${INDEXER_STREAM}:dlq`,
+          '*',
+          'originalMsgId',
+          msgId,
+          'error',
+          'parse_failure',
+          'payload',
+          JSON.stringify(fields),
+          'ts',
+          new Date().toISOString(),
+        );
+      } catch (dlqErr) {
+        logger.error({ dlqErr, msgId }, 'Failed to record poison message in dead-letter stream');
+      }
+      await this.redis.xack(INDEXER_STREAM, CONSUMER_GROUP, msgId);
+    }
+  }
+
+  /**
+   * Incrementally and idempotently add or replace one document in the index.
+   * Updates postings, bigram index, and trie without duplicates.
    */
   indexDocument(id: string, text: string, title: string, url: string): void {
-    // Track new terms before adding so we can add them to bigram index
-    const termsBefore = new Set(this.index.postings.keys());
+    const isUpdate = this.index.docs.has(id);
+    const termsBefore = isUpdate ? new Set(this.index.postings.keys()) : null;
+
+    // addDocument atomically removes old postings first if id exists
     addDocument(this.index, id, text, title, url);
     this.docTexts.set(id, text);
 
-    // Update bigram index and trie with any new terms
-    for (const term of this.index.postings.keys()) {
-      if (!termsBefore.has(term)) {
-        addTermToBigramIndex(this.bigramIndex, term);
+    // Update bigram index and trie
+    if (!isUpdate) {
+      for (const term of this.index.postings.keys()) {
+        if (!this.bigramIndex.has(term.slice(0, 2))) {
+          addTermToBigramIndex(this.bigramIndex, term);
+        }
         this.trie.insert(term, 1);
-      } else {
-        this.trie.increment(term, 1);
+      }
+    } else {
+      // For updates, only register newly introduced terms in bigrams and trie
+      for (const term of this.index.postings.keys()) {
+        if (termsBefore && !termsBefore.has(term)) {
+          addTermToBigramIndex(this.bigramIndex, term);
+          this.trie.insert(term, 1);
+        }
       }
     }
   }
@@ -164,7 +319,7 @@ export class IndexManager {
   estimateSizeMb(): number {
     const termsBytes = termCount(this.index) * 20; // rough estimate per term
     const postingsBytes = this.index.N * 50;
-    return Math.round((termsBytes + postingsBytes) / 1024 / 1024 * 10) / 10;
+    return Math.round(((termsBytes + postingsBytes) / 1024 / 1024) * 10) / 10;
   }
 }
 
@@ -181,7 +336,7 @@ interface StreamDoc {
   wordCount: number;
 }
 
-function parseStreamMessage(fields: string[]): StreamDoc | null {
+export function parseStreamMessage(fields: string[]): StreamDoc | null {
   // Redis XREAD returns fields as a flat [key, value, key, value...] array
   const map: Record<string, string> = {};
   for (let i = 0; i < fields.length - 1; i += 2) {

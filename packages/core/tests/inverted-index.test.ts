@@ -97,4 +97,41 @@ describe('InvertedIndex', () => {
       expect(df(index, searchTerm)).toBe(2);
     }
   });
+
+  it('guarantees idempotent indexing across repeated document deliveries', () => {
+    // Add doc1
+    addDocument(index, 'doc1', 'distributed systems consensus protocol', 'Doc 1', 'http://example.com/1');
+    const initialN = index.N;
+    const initialAvgLen = index.avgDocLen;
+    const initialTermCount = termCount(index);
+
+    // Re-index doc1 with the same content 5 times
+    for (let i = 0; i < 5; i++) {
+      addDocument(index, 'doc1', 'distributed systems consensus protocol', 'Doc 1', 'http://example.com/1');
+    }
+
+    expect(index.N).toBe(initialN);
+    expect(index.avgDocLen).toBeCloseTo(initialAvgLen, 6);
+    expect(termCount(index)).toBe(initialTermCount);
+
+    // Verify each posting list contains doc1 at most once
+    for (const [term, postings] of index.postings) {
+      const doc1Postings = postings.filter((p) => p.docId === 'doc1');
+      expect(doc1Postings.length).toBe(1);
+    }
+  });
+
+  it('correctly updates N and avgDocLen when updating document to different length', () => {
+    // doc1 has 2 tokens: "cat dog"
+    addDocument(index, 'doc1', 'cat dog', 'Doc 1', 'http://example.com/1');
+    // doc2 has 4 tokens: "apple banana orange grape"
+    addDocument(index, 'doc2', 'apple banana orange grape', 'Doc 2', 'http://example.com/2');
+    expect(index.N).toBe(2);
+    expect(index.avgDocLen).toBe(3); // (2 + 4) / 2
+
+    // Update doc1 to 6 tokens: "cat dog fish bird lion tiger"
+    addDocument(index, 'doc1', 'cat dog fish bird lion tiger', 'Doc 1', 'http://example.com/1');
+    expect(index.N).toBe(2);
+    expect(index.avgDocLen).toBe(5); // (6 + 4) / 2 = 5
+  });
 });

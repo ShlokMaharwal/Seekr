@@ -122,7 +122,7 @@ function satisfiesPhrase(
         const posting = postings.find((p) => p.docId === docId);
         if (posting) docPositions.set(term, posting.positions);
       }
-      return phraseMatchesDoc(clause.tokens, docPositions);
+      return phraseMatchesDoc(clause.tokens, docPositions, clause.offsets);
     }
     case 'and':
       return clause.clauses.every((c) => satisfiesPhrase(c, docId, index));

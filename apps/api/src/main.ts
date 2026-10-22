@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   await store.connect(MONGO_URL);
 
   // Core services
-  const indexManager = new IndexManager(redis);
+  const indexManager = new IndexManager(redis, store);
   await indexManager.load();
   await indexManager.startIndexer();
 

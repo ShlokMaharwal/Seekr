@@ -67,12 +67,14 @@ function deltaDecode(deltas: number[]): number[] {
 /**
  * Persist the inverted index to a JSON file at `filePath`.
  * Parent directories are created automatically.
+ * Writes to a temporary file first and renames atomically to prevent corrupted files on crash.
  */
 export async function saveIndex(
   index: InvertedIndex,
   filePath: string,
 ): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const dir = path.dirname(filePath);
+  await fs.mkdir(dir, { recursive: true });
 
   const docs: SerializedDoc[] = [];
   for (const meta of index.docs.values()) {
@@ -97,7 +99,22 @@ export async function saveIndex(
     postings,
   };
 
-  await fs.writeFile(filePath, JSON.stringify(data), 'utf8');
+  const tempPath = path.join(
+    dir,
+    `.${path.basename(filePath)}.tmp.${Date.now()}.${Math.random().toString(36).slice(2)}`,
+  );
+
+  try {
+    await fs.writeFile(tempPath, JSON.stringify(data), 'utf8');
+    await fs.rename(tempPath, filePath);
+  } catch (err) {
+    try {
+      await fs.unlink(tempPath);
+    } catch {
+      // Ignore cleanup error if temp file does not exist
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

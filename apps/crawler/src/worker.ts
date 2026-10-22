@@ -87,6 +87,16 @@ export class CrawlerWorker {
       'Crawler worker starting',
     );
 
+    // Initial pass to recover any stale/abandoned URLs before starting
+    await this.frontier.reapStale(60_000).catch(() => {});
+
+    // Periodic reaper for abandoned URLs from crashed workers
+    const reaperTimer = setInterval(() => {
+      this.frontier.reapStale(60_000).catch((err) => {
+        logger.warn({ err }, 'Reaper failed to scan stale processing URLs');
+      });
+    }, 15_000);
+
     const workers = Array.from(
       { length: this.config.concurrency },
       (_, index) => this.runLoop(index),
@@ -95,6 +105,7 @@ export class CrawlerWorker {
     try {
       await Promise.all(workers);
     } finally {
+      clearInterval(reaperTimer);
       this.running = false;
       await this.closeResources();
     }
@@ -150,7 +161,8 @@ export class CrawlerWorker {
     }
   }
 
-  private async runLoop(workerId: number): Promise<void> {
+  private async runLoop(workerIndex: number): Promise<void> {
+    const workerId = `worker-${process.pid}-${workerIndex}`;
     // Allow other workers time to finish processing discovered links.
     const idleTimeoutMs = 3000;
 
@@ -168,14 +180,14 @@ export class CrawlerWorker {
       let next: Awaited<ReturnType<UrlFrontier['dequeue']>>;
 
       try {
-        next = await this.frontier.dequeue();
+        next = await this.frontier.dequeue(workerId);
       } catch (err) {
         if (!this.running || this.stopRequested) {
           break;
         }
 
         logger.error(
-          { workerId, err },
+          { workerIndex, workerId, err },
           'Failed to dequeue URL',
         );
 
@@ -212,7 +224,7 @@ export class CrawlerWorker {
         await this.processUrl(next.url);
       } catch (err) {
         logger.error(
-          { workerId, url: next.url, err },
+          { workerIndex, workerId, url: next.url, err },
           'Unexpected URL processing error',
         );
 
@@ -225,6 +237,11 @@ export class CrawlerWorker {
           );
         }
       } finally {
+        try {
+          await this.frontier.complete(workerId, next.url, next.domain);
+        } catch (completeErr) {
+          logger.warn({ url: next.url, err: completeErr }, 'Failed to remove URL from processing queue');
+        }
         this.activeCount--;
         this.crawledCount++;
       }

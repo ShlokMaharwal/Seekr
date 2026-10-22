@@ -122,4 +122,42 @@ describe('phraseMatchesDoc()', () => {
     const docPositions = new Map([['cat', [3, 7]]]);
     expect(phraseMatchesDoc(['cat'], docPositions)).toBe(true);
   });
+
+  it('correctly handles phrases with removed stopwords using relative offsets', () => {
+    // "binary the tree" in text: binary at pos 0, the (stopword, skipped), tree at pos 2
+    const docWithStopword = new Map([
+      ['binari', [0]],
+      ['tree', [2]],
+    ]);
+
+    // "binary tree" in text: binary at pos 0, tree at pos 1
+    const docAdjacent = new Map([
+      ['binari', [0]],
+      ['tree', [1]],
+    ]);
+
+    // Phrase: "binary the tree" -> terms: ['binari', 'tree'], offsets: [0, 2]
+    const parsedWithStop = parseQuery('"binary the tree"');
+    expect(parsedWithStop.type).toBe('phrase');
+    if (parsedWithStop.type === 'phrase') {
+      expect(parsedWithStop.tokens).toEqual(['binari', 'tree']);
+      expect(parsedWithStop.offsets).toEqual([0, 2]);
+
+      // Matches docWithStopword, but NOT docAdjacent
+      expect(phraseMatchesDoc(parsedWithStop.tokens, docWithStopword, parsedWithStop.offsets)).toBe(true);
+      expect(phraseMatchesDoc(parsedWithStop.tokens, docAdjacent, parsedWithStop.offsets)).toBe(false);
+    }
+
+    // Phrase: "binary tree" -> terms: ['binari', 'tree'], offsets: [0, 1]
+    const parsedAdjacent = parseQuery('"binary tree"');
+    expect(parsedAdjacent.type).toBe('phrase');
+    if (parsedAdjacent.type === 'phrase') {
+      expect(parsedAdjacent.tokens).toEqual(['binari', 'tree']);
+      expect(parsedAdjacent.offsets).toEqual([0, 1]);
+
+      // Matches docAdjacent, but NOT docWithStopword
+      expect(phraseMatchesDoc(parsedAdjacent.tokens, docAdjacent, parsedAdjacent.offsets)).toBe(true);
+      expect(phraseMatchesDoc(parsedAdjacent.tokens, docWithStopword, parsedAdjacent.offsets)).toBe(false);
+    }
+  });
 });

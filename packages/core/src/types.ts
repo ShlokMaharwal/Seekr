@@ -41,7 +41,7 @@ export interface RankedResult {
 /** A parsed query node – supports AND, OR, and phrase clauses. */
 export type QueryClause =
   | { type: 'term'; value: string }
-  | { type: 'phrase'; tokens: string[] }
+  | { type: 'phrase'; tokens: string[]; offsets?: number[] }
   | { type: 'and'; clauses: QueryClause[] }
   | { type: 'or'; clauses: QueryClause[] };
 

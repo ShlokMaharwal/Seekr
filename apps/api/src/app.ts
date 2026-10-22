@@ -11,8 +11,7 @@
 
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
-import pinoHttpPkg from 'pino-http';
-const pinoHttp = (pinoHttpPkg as any).default || pinoHttpPkg;
+import { pinoHttp } from 'pino-http';
 import { logger } from './logger.js';
 import { searchRouter } from './routes/search.js';
 import { autocompleteRouter } from './routes/autocomplete.js';
