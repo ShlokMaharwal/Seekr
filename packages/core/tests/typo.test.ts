@@ -24,9 +24,11 @@ describe('levenshtein()', () => {
     expect(levenshtein('cats', 'cat')).toBe(1);
   });
 
-  it('handles swapped adjacent letters', () => {
-    // "teh" → "the": 2 operations (sub t→h, sub h→t would be 2, transposition not counted as 1 in classic Levenshtein)
-    expect(levenshtein('teh', 'the')).toBeLessThanOrEqual(2);
+  it('counts transposition as 1 edit (Damerau)', () => {
+    // "teh" → "the": single transposition, so distance = 1 with Damerau
+    expect(levenshtein('teh', 'the')).toBe(1);
+    expect(levenshtein('adn', 'and')).toBe(1);
+    expect(levenshtein('recieve', 'receive')).toBe(1);
   });
 
   it('handles empty strings', () => {

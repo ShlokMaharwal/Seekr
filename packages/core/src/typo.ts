@@ -1,41 +1,25 @@
-/**
- * Typo Tolerance
- *
- * Two-phase approach:
- *
- * Phase 1 – Candidate generation via bigram index:
- *   Build an inverted index from character bigrams to vocabulary terms.
- *   For a misspelled query term, extract its bigrams and look up all vocab
- *   terms that share at least one bigram. This is a fast approximate filter
- *   that narrows the search space from |vocabulary| to a small candidate set.
- *
- *   Bigrams of "seach": { se, ea, ac, ch } → candidate terms that share any
- *   of these bigrams, e.g. "search", "teach", "reach".
- *
- * Phase 2 – Levenshtein verification:
- *   For each candidate, compute the true edit distance with the full DP
- *   algorithm. Accept candidates with distance ≤ maxDist (default 2).
- *   Among accepted candidates, rank by (edit distance ASC, frequency DESC).
- *
- * Why bigrams first?
- *   Computing Levenshtein for every vocabulary term would be O(|V| × L²) per
- *   query. Bigram pre-filtering reduces this to O(candidates × L²) where
- *   candidates ≪ |V|.
- */
-
 // ---------------------------------------------------------------------------
-// Levenshtein distance (standard DP, O(m × n) time, O(n) space)
+// Damerau-Levenshtein distance (optimal string alignment variant)
+// Supports insertion, deletion, substitution, and transposition of adjacent
+// characters. O(m × n) time, O(2n) space using two-row DP.
+//
+// Transposition makes this more accurate for common typos like "teh" → "the",
+// "recieve" → "receive", "adn" → "and".
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the Levenshtein edit distance between two strings.
+ * Compute the Damerau-Levenshtein edit distance between two strings.
  * Returns early if the distance exceeds `maxDist` (optimization).
+ *
+ * Operations: insert, delete, substitute, transpose adjacent characters.
+ * Each operation costs 1.
  */
 export function levenshtein(a: string, b: string, maxDist = Infinity): number {
   if (a === b) return 0;
   if (Math.abs(a.length - b.length) > maxDist) return maxDist + 1;
 
-  // Use single-row DP; swap `prev` and `curr` each iteration
+  // Need two previous rows for transposition check
+  let prevPrev = new Array<number>(b.length + 1);
   let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   let curr = new Array<number>(b.length + 1);
 
@@ -50,17 +34,32 @@ export function levenshtein(a: string, b: string, maxDist = Infinity): number {
         (curr[j - 1] as number) + 1, // insertion
         (prev[j - 1] as number) + cost, // substitution
       );
+
+      // Transposition: swap of two adjacent characters
+      // Only valid when i >= 2 and j >= 2 and a[i-1]==b[j-2] and a[i-2]==b[j-1]
+      if (
+        i > 1 && j > 1 &&
+        a[i - 1] === b[j - 2] &&
+        a[i - 2] === b[j - 1]
+      ) {
+        curr[j] = Math.min(
+          curr[j] as number,
+          (prevPrev[j - 2] as number) + cost, // transposition
+        );
+      }
+
       if ((curr[j] as number) < rowMin) rowMin = curr[j] as number;
     }
 
     // Early termination: if the entire row exceeds maxDist, bail out
     if (rowMin > maxDist) return maxDist + 1;
 
-    [prev, curr] = [curr, prev];
+    [prevPrev, prev, curr] = [prev, curr, prevPrev];
   }
 
   return prev[b.length] as number;
 }
+
 
 // ---------------------------------------------------------------------------
 // Bigram index
