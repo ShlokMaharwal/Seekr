@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     command: redis-server --save 60 1 --loglevel warning
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -12,12 +12,16 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256m
 
   mongo:
     image: mongo:7
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongo_data:/data/db
     environment:
@@ -28,6 +32,10 @@ services:
       timeout: 10s
       retries: 6
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   api:
     build:
@@ -42,6 +50,8 @@ services:
       PORT: "4000"
       LOG_LEVEL: info
       INDEX_SNAPSHOT_PATH: /data/index.json
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000,http://localhost:8080}
     volumes:
       - index_data:/data
     depends_on:
@@ -54,6 +64,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   crawler:
     build:
@@ -80,3 +94,4 @@ volumes:
   redis_data:
   mongo_data:
   index_data:
+
