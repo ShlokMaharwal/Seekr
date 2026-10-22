@@ -9,6 +9,10 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    env: {
+      VITE_API_BASE_URL: "http://localhost:4000",
+      VITE_USE_MOCK: "true",
+    },
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },

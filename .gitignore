@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+.output/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.local
+
+# Testing and coverage
+coverage/
+.nyc_output/
+
+# Deployment & hosting temporary artifacts
+.vercel/
+.wrangler/
+.vinxi/
+.tanstack/
+.nitro/
+
+# Data and index snapshots
+data/
+index.json
+*.snapshot
+*.bin
+index_snapshot*
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
