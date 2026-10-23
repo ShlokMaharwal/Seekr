@@ -1,21 +1,12 @@
 # Routes
 
-TanStack Start uses **file-based routing**. Every `.tsx` file in this directory
-defines a route. Do **not** create `src/pages/`, `src/routes/_app/index.tsx`, or
-`app/layout.tsx` — those are Next.js / Remix conventions. The only root layout
-is `src/routes/__root.tsx`.
+TanStack Start generates `../routeTree.gen.ts` from these route modules:
 
-## Conventions
+| File          | URL         | Purpose                                                   |
+| ------------- | ----------- | --------------------------------------------------------- |
+| `__root.tsx`  | Root layout | Query provider, shared shell, error boundary, and outlet  |
+| `index.tsx`   | `/`         | Search parameters, loading/results, and ranker comparison |
+| `doc.$id.tsx` | `/doc/:id`  | Indexed document text and metadata                        |
+| `admin.tsx`   | `/admin`    | Client-side token gate and dashboard                      |
 
-| File                     | URL                                                     |
-| ------------------------ | ------------------------------------------------------- |
-| `index.tsx`              | `/`                                                     |
-| `about.tsx`              | `/about`                                                |
-| `users/index.tsx`        | `/users`                                                |
-| `users/$id.tsx`          | `/users/:id` (dynamic — bare `$`, no curly braces)      |
-| `posts/{-$category}.tsx` | `/posts/:category?` (optional segment)                  |
-| `files/$.tsx`            | `/files/*` (splat — read via `_splat` param, never `*`) |
-| `_layout.tsx`            | layout route (renders children via `<Outlet />`)        |
-| `__root.tsx`             | app shell — wraps every page; preserve `<Outlet />`     |
-
-`routeTree.gen.ts` is auto-generated. Don't edit it by hand.
+Preserve the root outlet and let route generation update its own generated file.

@@ -1,68 +1,36 @@
-# Contributing to Seekr
+# Contributing
 
-Thanks for your interest in contributing! Here's how to get started.
-
-## Prerequisites
-
-- **Node.js 22+** and npm
-- **Docker** and Docker Compose (for Redis and MongoDB)
-
-## Getting started
+Use Node.js 22.17+, npm, and Docker with Compose v2 for integration work.
 
 ```bash
-# Clone the repo
-git clone https://github.com/ShlokMaharwal/Seekr.git
-cd Seekr
-
-# Install dependencies
 npm ci
-
-# Start infrastructure (Redis + MongoDB)
-docker compose up redis mongo -d
-
-# Build all packages
+npm ci --prefix frontend
 npm run build
-
-# Run all tests
 npm test
+npm run test:coverage
+npm run build:frontend
+npm run test:frontend
+npm run lint
+npm run format:check
+npm run test:e2e
 ```
 
-## Project structure
+Copy `.env.example` and `frontend/.env.example` to local `.env` files, choose an
+admin token, and follow the README's Docker/native port instructions. Never commit
+real credentials, downloaded data, compiled output, or snapshots.
 
-| Directory       | Description                           |
-| --------------- | ------------------------------------- |
-| `packages/core` | Pure algorithms (index, ranker, trie) |
-| `apps/api`      | Express API server                    |
-| `apps/crawler`  | Distributed crawler workers           |
-| `frontend`      | React frontend (TanStack Start)       |
-| `bench`         | Benchmarks                            |
-| `scripts`       | Utility scripts (seed, etc.)          |
+Keep changes focused and use conventional commits (`fix:`, `feat:`, `test:`,
+`docs:`, `chore:`, `ci:`). Run the affected checks before committing. `npm run
+format` applies the shared Prettier configuration; ESLint covers TypeScript and
+JavaScript with no explicit `any` in source code.
 
-## Running tests
+New runtime dependencies should be discussed first. Test/lint tooling belongs in
+development dependencies. Keep public routes, parameters, and response shapes
+compatible. Explain algorithmic decisions and add regression tests for defects.
 
-```bash
-# All workspaces
-npm test
+For benchmarks, keep source commit, date, machine, corpus fingerprint, and workload
+in the report. Use `TBD (run locally)` for unavailable measurements. Generated
+fixture measurements and Wikipedia relevance judgments are different workloads.
 
-# Single workspace
-npm test --workspace=packages/core
-npm test --workspace=apps/api
-npm test --workspace=apps/crawler
-```
-
-## Code style
-
-- TypeScript strict mode
-- No `any` types
-- Conventional commit messages: `feat:`, `fix:`, `test:`, `chore:`, `docs:`, `ci:`
-
-## Making changes
-
-1. Create a branch from `main`
-2. Make your changes
-3. Run `npm run build && npm test` to verify
-4. Open a pull request with a clear description
-
-## License
-
-By contributing, you agree that your contributions will be licensed under the MIT License.
+The MIT license already covers the source. Wikipedia evaluation downloads retain
+their source URLs and CC BY-SA attribution separately.

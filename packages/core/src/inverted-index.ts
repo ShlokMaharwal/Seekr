@@ -5,8 +5,8 @@
  *   term → Posting[]   where Posting = { docId, tf, positions }
  *   docId → DocMeta    { docId, length, title, url }
  *
- * Positions are token-stream indices (after stopword removal) so phrase
- * queries can verify adjacency by checking position[i+1] == position[i] + 1.
+ * Positions count original words, including removed stopwords. Phrase queries
+ * check the relative offsets retained by the query parser.
  *
  * Corpus-level stats (N, avgDocLen) are updated incrementally on each add/remove.
  */

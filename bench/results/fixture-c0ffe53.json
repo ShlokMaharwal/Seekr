@@ -1,0 +1,61 @@
+{
+  "source": "Isolated Docker HTTP fixture with real Redis and MongoDB",
+  "commit": "c0ffe53f6b67c3e4b59f19f1f053d5682231fd13",
+  "measuredAt": "2026-10-23T19:23:58.834Z",
+  "machine": "AMD EPYC 9V45 96-Core Processor; 15.6 GiB RAM; linux 6.17.0-1022-azure; Node v22.23.4",
+  "corpusSize": 1001,
+  "search": [
+    {
+      "scenario": "BM25 cold",
+      "rps": 589.2259904172499,
+      "p50": 7.759367000002385,
+      "p95": 13.405371000000741,
+      "p99": 23.153772999998182,
+      "successes": 2949,
+      "errors": 0
+    },
+    {
+      "scenario": "BM25 warm",
+      "rps": 2891.993874510083,
+      "p50": 1.4330790000021807,
+      "p95": 3.155564000000595,
+      "p99": 5.917754999998579,
+      "successes": 14478,
+      "errors": 0
+    },
+    {
+      "scenario": "TFIDF cold",
+      "rps": 722.8835048710994,
+      "p50": 6.608083999999508,
+      "p95": 9.250774999996793,
+      "p99": 13.651114000000234,
+      "successes": 3619,
+      "errors": 0
+    },
+    {
+      "scenario": "TFIDF warm",
+      "rps": 2863.632664658703,
+      "p50": 1.6252089999979944,
+      "p95": 3.03572400000121,
+      "p99": 4.985811000005924,
+      "successes": 14335,
+      "errors": 0
+    }
+  ],
+  "crawl": [
+    {
+      "workers": 1,
+      "fetched": 184,
+      "seconds": 5.305,
+      "pagesPerMin": 2081.0556079170597
+    },
+    {
+      "workers": 3,
+      "fetched": 499,
+      "seconds": 5.203,
+      "pagesPerMin": 5754.372477416875
+    }
+  ],
+  "comparison": "| Query | Ranker | Top five titles (score) |\n|---|---|---|\n| binary tree | bm25 | Computer science 1 (0.001); Computer science 0 (0.001); Computer science 3 (0.001); Computer science 2 (0.001); Computer science 999 (0.001) |\n| binary tree | tfidf | Computer science 1 (2); Computer science 0 (2); Computer science 3 (2); Computer science 2 (2); Computer science 999 (2) |\n| graph algorithm | bm25 | Computer science 1 (0.001); Computer science 0 (0.001); Computer science 3 (0.001); Computer science 2 (0.001); Computer science 999 (0.001) |\n| graph algorithm | tfidf | Computer science 1 (2.693); Computer science 0 (2.693); Computer science 3 (2.693); Computer science 2 (2.693); Computer science 999 (2.693) |\n| search engine | bm25 | Computer science 1 (0.001); Computer science 0 (0.001); Computer science 3 (0.001); Computer science 2 (0.001); Computer science 999 (0.001) |\n| search engine | tfidf | Computer science 1 (2); Computer science 0 (2); Computer science 3 (2); Computer science 2 (2); Computer science 999 (2) |\n| machine learning | bm25 | Computer science 1 (0.001); Computer science 0 (0.001); Computer science 3 (0.001); Computer science 2 (0.001); Computer science 999 (0.001) |\n| machine learning | tfidf | Computer science 1 (2); Computer science 0 (2); Computer science 3 (2); Computer science 2 (2); Computer science 999 (2) |\n| data structure | bm25 | Computer science 1 (0.001); Computer science 0 (0.001); Computer science 3 (0.001); Computer science 2 (0.001); Computer science 999 (0.001) |\n| data structure | tfidf | Computer science 1 (2); Computer science 0 (2); Computer science 3 (2); Computer science 2 (2); Computer science 999 (2) |\n| distributed computing | bm25 | Computer science 1 (0.001); Computer science 0 (0.001); Computer science 3 (0.001); Computer science 2 (0.001); Computer science 999 (0.001) |\n| distributed computing | tfidf | Computer science 1 (2); Computer science 0 (2); Computer science 3 (2); Computer science 2 (2); Computer science 999 (2) |\n| hash table | bm25 | Computer science 1 (0.001); Computer science 0 (0.001); Computer science 3 (0.001); Computer science 2 (0.001); Computer science 999 (0.001) |\n| hash table | tfidf | Computer science 1 (2); Computer science 0 (2); Computer science 3 (2); Computer science 2 (2); Computer science 999 (2) |\n| sorting algorithm | bm25 | Computer science 1 (0.001); Computer science 0 (0.001); Computer science 3 (0.001); Computer science 2 (0.001); Computer science 999 (0.001) |\n| sorting algorithm | tfidf | Computer science 1 (2.693); Computer science 0 (2.693); Computer science 3 (2.693); Computer science 2 (2.693); Computer science 999 (2.693) |\n| information retrieval | bm25 | Computer science 1 (0.001); Computer science 0 (0.001); Computer science 3 (0.001); Computer science 2 (0.001); Computer science 999 (0.001) |\n| information retrieval | tfidf | Computer science 1 (2); Computer science 0 (2); Computer science 3 (2); Computer science 2 (2); Computer science 999 (2) |\n| database transaction | bm25 | Computer science 1 (0.001); Computer science 0 (0.001); Computer science 3 (0.001); Computer science 2 (0.001); Computer science 999 (0.001) |\n| database transaction | tfidf | Computer science 1 (2); Computer science 0 (2); Computer science 3 (2); Computer science 2 (2); Computer science 999 (2) |",
+  "workflowUrl": "https://github.com/ShlokMaharwal/Seekr/actions/runs/40010931478"
+}

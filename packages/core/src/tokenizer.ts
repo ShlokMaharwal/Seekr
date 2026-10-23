@@ -354,7 +354,7 @@ export interface Token {
   term: string;
   /** Raw surface form before stemming. */
   raw: string;
-  /** Zero-based position index in the token stream (after stopword removal). */
+  /** Zero-based position in the original word stream, including removed stopwords. */
   position: number;
 }
 

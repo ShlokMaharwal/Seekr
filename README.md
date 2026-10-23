@@ -1,305 +1,275 @@
-# Seekr – Custom Search Engine
+# Seekr
+
+**A search engine built from scratch in TypeScript.** Redis-backed crawling,
+positional inverted indexes, BM25 ranking, cached trie autocomplete, and spelling
+suggestions. No Elasticsearch, Lucene, or Meilisearch.
 
 [![CI](https://github.com/ShlokMaharwal/Seekr/actions/workflows/ci.yml/badge.svg)](https://github.com/ShlokMaharwal/Seekr/actions/workflows/ci.yml)
 
-A from-scratch web search engine: crawler → inverted index → BM25 ranking → REST API.
-No Elasticsearch, Lucene, or Meilisearch. Every algorithm is implemented by hand.
+[Architecture](docs/ARCHITECTURE.md) · [Design decisions](docs/DESIGN_DECISIONS.md) ·
+[Evaluation](docs/EVALUATION.md) · [Benchmarks](docs/BENCHMARKS.md) · [Verification](docs/TESTING.md)
 
----
+This is a local portfolio project. Docker runs the backend; Vite runs the UI.
+There is no hosted deployment.
+
+## Features
+
+- A Redis URL frontier with per-domain delays, atomic deduplication/checkout,
+  processing leases, heartbeats, and atomic recovery of stale work.
+- HTTP(S) fetching with bounded retries, robots rules, manual redirect checks,
+  connection-time DNS validation, a 5 MiB response cap, and timeouts.
+- MongoDB documents, full-text SHA-256 deduplication, and optional 64-bit SimHash
+  near-duplicate detection with indexed candidate bands.
+- Separate body/title positional indexes, incremental document replacement,
+  BM25 and TF-IDF ranking, and optional BM25F title weighting.
+- Implicit AND, OR, and quoted phrase queries, evaluated before top-K selection.
+- A frequency-ranked trie that caches the top ten terms at every prefix node;
+  the public autocomplete endpoint returns six.
+- Per-term spelling suggestions using boundary-aware character bigrams and
+  capped Damerau-Levenshtein distance.
+- Plain-text snippets selected by a sliding window and rendered through React's
+  escaping, including query highlights.
+- Checksummed binary snapshots using varints and delta-encoded document ordinals
+  and positions, with a loader for legacy JSON.
+- A React search page, document reader, ranker comparison, and token-protected
+  crawler dashboard.
+
+## Quick start
+
+Use **Node.js 22.17+**, npm, and Docker Desktop/Engine with Compose v2. Start the
+Docker engine before running Compose.
+
+```bash
+npm ci
+npm ci --prefix frontend
+cp .env.example .env
+cp frontend/.env.example frontend/.env
+```
+
+Set `ADMIN_TOKEN` in `.env` to a local token of your choice. Then:
+
+```bash
+docker compose up --build -d
+npm run dev:frontend
+```
+
+Open [localhost:5173](http://localhost:5173). In **Dashboard**, enter the same
+admin token and connect. Start a crawl with a seed such as
+`https://en.wikipedia.org/wiki/Computer_science`. Search results appear as the
+indexer consumes crawled documents. To explore a whole section, use a section
+root such as `https://nodejs.org/en/docs/`.
+
+The API is available at [localhost:4001](http://localhost:4001/health) with Docker.
+The frontend example file already points there. Restart Vite after changing its
+environment file.
+
+### Run without Docker
+
+Start Redis on `localhost:6379` and MongoDB on `localhost:27017`, then build:
+
+```bash
+npm run build
+npm run dev:api
+# In another terminal:
+npm run dev:crawler
+# In another terminal:
+npm run dev:frontend
+```
+
+Export the root environment variables for native API/crawler processes. Set
+`VITE_API_BASE_URL=http://localhost:4000` in `frontend/.env` for native API
+development. Docker maps **host 4001 → container 4000**; the native API defaults
+to **4000**. See [local setup](docs/LOCAL_DEVELOPMENT.md).
+
+## Demo
+
+```bash
+docker compose up --build -d
+npm run dev:frontend
+```
+
+Connect the dashboard with your token, crawl a small corpus, then demonstrate
+`binary tree`, `binary OR graph`, `"binary tree"`, autocomplete, a misspelling,
+ranker comparison, and an indexed document. Pause and resume from the dashboard.
+
+**Demo GIF:** add your local screen recording here.
 
 ## Architecture
 
 ```mermaid
-graph TD
-    subgraph Crawler["Crawler Workers"]
-        CW["Worker Process"]
-        HTTP["HTTP Fetcher"]
-        PARSER["HTML Parser"]
-        MONGO[("MongoDB")]
-        FRONTIER["URL Frontier"]
-        REDIS[("Redis")]
-        STREAM[("Redis Stream: stream:new-docs")]
-
-        CW -->|fetch HTML| HTTP
-        HTTP -->|parse| PARSER
-        PARSER -->|upsert| MONGO
-        PARSER -->|enqueue links| FRONTIER
-        FRONTIER -->|queues| REDIS
-        CW -->|publish document| STREAM
-    end
-
-    subgraph APIProcess["API Process"]
-        INDEXER["Indexer Consumer"]
-        IDX["In-Memory Inverted Index"]
-        DISK["Index Snapshot: index.json"]
-        API["Express API"]
-        TRIE["Trie"]
-        BIGRAM["Bigram Index"]
-
-        INDEXER -->|addDocument| IDX
-        IDX -->|save snapshot| DISK
-        API -->|score BM25 or TF-IDF| IDX
-        API -->|autocomplete| TRIE
-        API -->|spell correction| BIGRAM
-        API -->|cache queries| REDIS
-        API -->|fetch documents| MONGO
-        STREAM -->|consume events| INDEXER
-    end
-
-    subgraph Frontend["Frontend"]
-        UI["React App"]
-        UI -->|REST requests| API
-    end
-
-    subgraph Admin["Admin Controls"]
-        ADMIN["POST /admin/crawl/start"]
-        ADMIN -->|crawl control| REDIS
-        REDIS -->|poll control| CW
-    end
+flowchart LR
+    Seeds --> Frontier[Redis URL frontier]
+    Frontier --> Crawler[Fetch and parse]
+    Crawler --> Mongo[(MongoDB documents)]
+    Crawler --> Stream[Redis document stream]
+    Stream --> Indexer
+    Indexer --> Index[Body/title index + trie + bigrams]
+    Index <--> Snapshot[Binary snapshot]
+    UI[React UI] --> API[Express API]
+    API --> Index
+    API --> Mongo
+    API --> Redis[(Cache, metrics, crawl control)]
 ```
 
-## Data Flow
+MongoDB is the document source of truth. Redis coordinates work and events. The
+API serves an in-memory index and periodically saves it to disk. On startup it
+loads a snapshot, streams MongoDB to reconcile changes since that snapshot, and
+recovers pending stream messages. See the [page-by-page walkthrough](docs/ARCHITECTURE.md).
 
-```
-Seed URLs
-   │
-   ▼
-URL Frontier (Redis per-domain queues)
-   │  politeness delay, dedup via seen-set
-   ▼
-HTTP Fetcher (undici, retry+backoff, 5 redirect hops)
-   │
-   ▼
-HTML Parser (cheerio)
-   │  strip nav/scripts, extract title+text+links
-   ▼
-MongoDB (upsert by URL + contentHash dedup)
-   │
-   ▼
-Redis Stream "stream:new-docs"
-   │
-   ▼
-Indexer Consumer (XREADGROUP)
-   │  addDocument → InvertedIndex (positional postings)
-   │  new terms → BigramIndex, Trie
-   ▼
-Snapshot (delta-encoded JSON, every 60s)
-   │
-   ▼
-/search endpoint
-   │  parseQuery → AND/OR/phrase AST
-   │  scoreBM25 / scoreTFIDF (top-K min-heap)
-   │  phrase filter (positional adjacency check)
-   │  generateSnippet (sliding window)
-   │  didYouMean (bigram filter + Levenshtein)
-   ▼
-SearchResponse { total, tookMs, didYouMean?, results[] }
+## How it works
+
+### Tokenization and phrase positions
+
+The English pipeline lowercases ASCII letters/digits, removes stopwords, and
+applies a simplified Porter-style stemmer. Positions count original words,
+including removed stopwords. `"binary the tree"` therefore has a different
+position pattern from `"binary tree"`. Query Boolean conditions and phrase
+positions are checked before ranking, so totals count every matching document
+rather than only the retained heap entries.
+
+### Ranking
+
+Body BM25 defaults to `k1=1.2`, `b=0.75`:
+
+```text
+IDF(t)     = ln(1 + (N - df(t) + 0.5) / (df(t) + 0.5))
+score(d,q) = Σ IDF(t) × tf(t,d)(k1 + 1)
+                         / [tf(t,d) + k1(1 - b + b|d|/avgdl)]
 ```
 
----
+TF-IDF uses smoothed IDF and `1 + ln(tf)`, without document-length normalization.
+BM25F combines normalized title/body term frequencies before applying saturation.
+Set `BM25_TITLE_WEIGHT=2` to try it; zero preserves body BM25. Results use a size-K
+min-heap rather than sorting the entire scored corpus.
 
-## Project Structure
+The [20-query evaluation over 29 Wikipedia CS articles](docs/EVALUATION.md)
+measured **0.9683 nDCG@10 for default BM25** and **0.9089 for TF-IDF**. Title
+weighting did not improve this small judged set, so it is opt-in. This is an
+exploratory educational evaluation with incomplete judgments, not a held-out
+benchmark or evidence of web-scale relevance.
 
-```
-seekr/
-├── packages/
-│   └── core/                   # @seekr/core – all algorithms (no I/O)
-│       └── src/
-│           ├── tokenizer.ts    # lowercase, strip punct, stopwords, Porter stemmer
-│           ├── inverted-index.ts # positional postings, incremental add/remove
-│           ├── ranker.ts       # BM25 (k1=1.2, b=0.75) and TF-IDF
-│           ├── query-parser.ts # AND/OR/phrase AST + position verifier
-│           ├── trie.ts         # autocomplete with frequency-ranked DFS
-│           ├── typo.ts         # bigram index + Levenshtein "did you mean"
-│           ├── snippet.ts      # sliding-window snippet with highlights
-│           ├── heap.ts         # MinHeap and TopKHeap (O(n log K) ranking)
-│           ├── serializer.ts   # delta-encoded JSON save/load
-│           └── index.ts        # barrel exports
-│
-├── apps/
-│   ├── api/                    # Express search + admin API
-│   │   └── src/
-│   │       ├── main.ts         # entrypoint, graceful shutdown
-│   │       ├── app.ts          # Express factory (CORS, logging, routes)
-│   │       ├── index-manager.ts # in-memory index + Redis stream consumer
-│   │       ├── cache.ts        # Redis query cache (TTL 60s)
-│   │       ├── metrics.ts      # p50/p99 latency, top queries, crawl rate
-│   │       ├── store.ts        # MongoDB read-side
-│   │       └── routes/
-│   │           ├── search.ts   # GET /search
-│   │           ├── autocomplete.ts # GET /autocomplete
-│   │           ├── doc.ts      # GET /doc/:id
-│   │           └── admin.ts    # GET|POST /admin/*
-│   │
-│   └── crawler/                # worker process (run multiple instances)
-│       └── src/
-│           ├── main.ts         # entrypoint, polls Redis control key
-│           ├── worker.ts       # CrawlerWorker: fetch+parse+store+enqueue
-│           ├── frontier.ts     # URL frontier (Redis per-domain queues)
-│           ├── fetcher.ts      # HTTP fetch with retry + exponential backoff
-│           ├── parser.ts       # cheerio HTML parser + link extractor
-│           ├── robots.ts       # robots.txt cache (1h TTL)
-│           └── store.ts        # MongoDB write-side
-│
-├── frontend/                   # Modern React UI (Vite + TanStack Router + Tailwind CSS)
-│   ├── src/
-│   │   ├── frontend/           # Search, Autocomplete, Crawler Dashboard, Theme toggle
-│   │   │   ├── api.ts          # Typed REST client & TanStack Query hooks
-│   │   │   ├── config.ts       # API_BASE_URL (http://localhost:4001) & USE_MOCK toggle
-│   │   │   ├── search-box.tsx  # Debounced autocomplete & search input
-│   │   │   ├── dashboard.tsx   # Live crawler status, charts & crawl triggers
-│   │   │   └── shell.tsx       # Layout, nav & light/dark theme switcher
-│   │   └── routes/             # TanStack Start file-based routing
-│   └── package.json
-│
-├── bench/
-│   ├── search-bench.js         # RPS + p50/p95/p99 with/without cache
-│   ├── ranker-compare.js       # BM25 vs TF-IDF top-5 results
-│   └── crawl-bench.js          # pages/min with 1 vs 3 workers
-│
-├── scripts/
-│   └── seed.js                 # kick-off Wikipedia CS crawl
-│
-├── docker-compose.yml
-└── README.md
-```
+### Suggestions, duplicates, and snapshots
 
----
+Autocomplete reads cached winners after walking the prefix. Spelling correction
+proposes changes only for zero-hit terms; it does not silently rewrite queries.
+Suggestions are based on indexed stems. SimHash candidates share a 16-bit band;
+Hamming distance verifies them with a configurable threshold of at most three.
 
-## Design Decisions & Trade-offs
+Binary snapshots include document metadata, snippet text, and both positional
+fields. Writes use a unique temporary file, fsync, and rename. A checksum rejects
+partial/corrupt data; startup can rebuild from MongoDB. Old `index.json` snapshots
+remain readable and are migrated when the default binary path is used.
 
-### Why BM25 over TF-IDF?
+## Configuration
 
-| Property              | TF-IDF                                             | BM25                                                                                             |
-| --------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| TF saturation         | None — scores grow unboundedly with term frequency | Saturates (k1 parameter): a term appearing 100× is not 100× more relevant than one appearing 10× |
-| Length normalization  | None by default                                    | b=0.75 penalises long documents that contain terms by sheer volume                               |
-| Short-query relevance | Good                                               | Better — IDF formula handles the case df > N/2 without going negative                            |
-| Tunable               | No                                                 | Yes — k1 (saturation), b (length norm) can be tuned per corpus                                   |
+Copy the root and frontend `.env.example` files. Never commit real `.env` files.
 
-BM25 consistently outperforms TF-IDF on standard IR benchmarks (TREC, MS MARCO) because web documents vary wildly in length. A 10-word answer page and a 50,000-word textbook chapter shouldn't compete on raw TF alone.
+| Variable                | Default / purpose                                                                                        |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| `REDIS_URL`             | `redis://localhost:6379`                                                                                 |
+| `MONGO_URL`             | `mongodb://localhost:27017`, database `seekr`                                                            |
+| `PORT`                  | Native API port `4000`                                                                                   |
+| `LOG_LEVEL`             | `info`                                                                                                   |
+| `INDEX_SNAPSHOT_PATH`   | Native `./data/index.bin`; Docker `/data/index.bin`                                                      |
+| `ADMIN_TOKEN`           | Required for every `/admin/*` request when configured; missing token disables admin routes in production |
+| `NODE_ENV`              | Docker uses `production`; native development uses your shell setting                                     |
+| `CORS_ORIGINS`          | Comma-separated allowed origins; defaults to localhost ports 5173, 3000, 8080                            |
+| `BM25_TITLE_WEIGHT`     | `0`; positive values enable BM25F (range 0–20)                                                           |
+| `SIMHASH_MAX_DISTANCE`  | `3`; range -1–3, with -1 disabling near-duplicate filtering                                              |
+| `SEARCH_RATE_LIMIT_MAX` | `60` searches/IP/minute; raise only for isolated benchmarks                                              |
+| `VITE_API_BASE_URL`     | Frontend fallback `http://localhost:4000`; frontend example selects Docker port 4001                     |
+| `VITE_USE_MOCK`         | `false`; `true` selects clearly illustrative UI fixtures                                                 |
+| `SEEKR_API_URL`         | Benchmark target, default `http://localhost:4001`                                                        |
+| `CRAWLER_TEST_ORIGIN`   | Exact private fixture origin, honored only with `NODE_ENV=test`; never needed for normal crawling        |
 
-### Positional Index Cost
+The benchmark helpers also accept `BENCH_CRAWL_SEEDS` (JSON seed array) and
+`BENCH_COMMIT` (captured automatically by the isolated benchmark runner).
 
-Storing `positions[]` per posting roughly doubles memory vs a non-positional index. The trade-off is exact phrase search — without positions, phrase queries require re-scanning raw text, which is 10-100× slower. For a search engine supporting `"exact phrase"` queries this is non-negotiable.
+The dashboard stores the admin token in localStorage with an in-memory fallback
+when browser storage is blocked. Redis/Mongo ports bind to loopback in Compose;
+the fixture test network has no published ports or Internet access.
 
-### Bigram Index for Typo Tolerance
+## API reference
 
-Alternative: computing Levenshtein against the full vocabulary (|V| × L² ops per query). With 500k terms this is ~50M character comparisons per misspelled word — too slow. The bigram filter reduces candidates to a few hundred before verifying with Levenshtein, giving typo tolerance in sub-millisecond time.
+| Method | Path                                         | Description                                                          |
+| ------ | -------------------------------------------- | -------------------------------------------------------------------- |
+| GET    | `/search?q=&page=&limit=&ranker=bm25\|tfidf` | `{ total, tookMs, didYouMean?, results[] }`                          |
+| GET    | `/autocomplete?q=`                           | `{ suggestions: string[] }`, up to six terms                         |
+| GET    | `/doc/:id`                                   | Stored document and cleaned text                                     |
+| GET    | `/health`                                    | Process health; not a deep dependency readiness check                |
+| GET    | `/admin/stats`                               | Corpus, queue, and crawl statistics                                  |
+| GET    | `/admin/crawl/feed`                          | Recent crawl events                                                  |
+| GET    | `/admin/metrics`                             | Query latency, crawl buckets, and top queries                        |
+| POST   | `/admin/crawl/start`                         | `{ seeds, maxPages, delayMs, workers }`; also resumes a paused crawl |
+| POST   | `/admin/crawl/pause`                         | Pause the active crawl                                               |
+| POST   | `/admin/crawl/stop`                          | Stop processing and reset the frontier                               |
 
-### Cache TTL Choice (60s)
+Admin requests require `Authorization: Bearer <ADMIN_TOKEN>`. In tokenless native
+development they are permitted with a warning. Query caps are 500 characters,
+pages 1–1000, and limits 1–50. Crawl seeds are HTTP(S) URLs, capped at 100;
+workers are 1–10. Autocomplete inputs are capped at 100 characters.
 
-A longer TTL (e.g. 5 min) gives higher hit rates but serves stale results as the crawler adds new documents. At our crawl rate of ~40-50 pages/min, the index changes meaningfully every few minutes. 60s is a sweet spot: the cache eliminates the cost of repeated identical queries (common for trending topics) while keeping results fresh enough that a user who searches twice a minute sees updates.
-
-### Index Snapshot Format
-
-Delta-encoded position arrays reduce file size by 30-50% vs raw arrays, because positions within a document are monotonically increasing and the deltas (gaps between consecutive positions) are typically small numbers (1-5). These compress further if gzip is applied, making cold-start restarts fast.
-
----
-
-## Benchmark Results (illustrative — run your own with live data)
-
-### Search Throughput
-
-| Scenario          | RPS  | p50 ms | p95 ms | p99 ms | Errors |
-| ----------------- | ---- | ------ | ------ | ------ | ------ |
-| BM25 cold cache   | 820  | 11     | 28     | 45     | 0      |
-| BM25 warm cache   | 3240 | 3      | 8      | 14     | 0      |
-| TF-IDF cold cache | 890  | 10     | 25     | 41     | 0      |
-| TF-IDF warm cache | 3310 | 3      | 7      | 13     | 0      |
-
-> Cache provides ~4× throughput improvement. BM25 and TF-IDF have similar latency since both are O(N log K) with the min-heap.
-
-### Crawl Throughput
-
-| Workers | Pages/min | Notes                                            |
-| ------- | --------- | ------------------------------------------------ |
-| 1       | 18        | Single process, 500ms politeness delay           |
-| 3       | 52        | Near-linear scaling (separate queues per domain) |
-
----
-
-## Running the Complete System
-
-### Option A: Complete Stack with Docker (Recommended)
-
-#### Prerequisites
-
-- Docker + Docker Compose v2
-- Node.js 20+
+## Tests and benchmarks
 
 ```bash
-# 1. Start backend infrastructure (Redis, MongoDB, API on :4001, Crawler)
-docker compose up -d
+npm run build
+npm test
+npm run test:coverage
+npm run build:frontend
+npm run test:frontend
+npm run lint
+npm run format:check
+npm run test:e2e          # requires a working Docker engine
 
-# 2. Wait for health checks (≈15 seconds), then seed Wikipedia CS documents
-node scripts/seed.js 1000 http://localhost:4001
-
-# 3. Start the Frontend UI (served on http://localhost:5173)
-cd frontend
-npm install
-npm run dev
-# (or from the project root: npm run dev:frontend)
-
-# 4. Open http://localhost:5173 in your browser
-#    - Search: Instant BM25 & TF-IDF search, autocomplete, and highlighted snippets
-#    - Crawler Dashboard: Live crawl stats, throughput charts, and start/pause controls
-
-# 5. Run benchmarks (after pages are indexed)
-node bench/search-bench.js
-node bench/ranker-compare.js
+node bench/eval/prepare.mjs
+npm run bench:eval
+npm run bench:micro
+npm run bench:stack       # isolated Redis/Mongo + generated HTTP fixture
+npm run bench             # writes docs/BENCHMARKS.md
 ```
 
-#### Scale to 3 crawlers
+Core coverage measured **98.26% lines, 94.26% statements, 97.79% functions,
+83.33% branches**. CI checks Node 22 builds, lint, format, backend/frontend tests,
+coverage thresholds, a real Redis/Mongo fixture E2E run, and fixture benchmarks.
 
-```bash
-docker compose up -d --scale crawler=3
+All recorded throughput, p50/p95/p99, worker concurrency, memory, disk-size, and
+load-time results live in [BENCHMARKS.md](docs/BENCHMARKS.md), with their date,
+machine, corpus, and commit. The generated fixture and Wikipedia corpus are
+different workloads. Neither is a claim about Internet crawl throughput.
+Raw reference fixture measurements are retained in `bench/results/`.
+
+## Project structure
+
+```text
+packages/core/   Algorithms, shared types, binary/legacy snapshot codecs, tests
+apps/api/        Express routes, index manager, cache, metrics, Mongo read side
+apps/crawler/    Frontier, worker, fetch/robots/parser, Mongo write side
+frontend/        React 19, Vite, TanStack Start/Router/Query, Tailwind
+bench/          Judgments, evaluation, microbenchmarks, service benchmarks
+tests/e2e/      Isolated Docker fixture and process-level integration tests
+scripts/        Local tooling and test/benchmark orchestration
+docs/           Architecture, design, evaluation, verification, measured results
 ```
 
----
+## Limitations and roadmap
 
-### Option B: Local Development (without Docker)
+- The whole index and snippet text live in one API process. Corpus size is bounded
+  by RAM; no million-document capacity claim is made from these small tests.
+- CPU-heavy scoring/indexing shares Node's event loop with HTTP handling.
+- Phrase matching preserves stem order and stopword gaps, but removed stopword
+  identities are not stored. Unicode tokenization, field-specific phrase operators,
+  NOT, parentheses, and semantic/vector retrieval are not implemented.
+- The local crawl control protocol is a single shared job. Worker count means
+  concurrency within a process; robust multi-job scheduling is future work.
+- SimHash is a heuristic and can suppress distinct short/similar pages. It is
+  applied only from 20 words upward; disable it to inspect a corpus without that filter.
+- Cache entries may be stale for up to 60 seconds. Top-query counts are retained
+  cumulatively, and dashboard crawl state is local to the browser session.
+- A full Internet crawl and a demo recording remain manual exercises. For larger
+  corpora, consider sharding, immutable disk segments, and scatter-gather retrieval.
 
-```bash
-# Requires local Redis (:6379) and MongoDB (:27017)
-npm install
+## Contributing and license
 
-# Terminal 1: Search API (runs on :4000)
-npm run dev:api
-
-# Terminal 2: Crawler Worker
-npm run dev:crawler
-
-# Terminal 3: Frontend UI (runs on :5173)
-npm run dev:frontend
-# Note: For local dev on :4000, set API_BASE_URL = 'http://localhost:4000' in frontend/src/frontend/config.ts
-```
-
-### Run tests
-
-```bash
-npm test            # runs all packages
-npm test -w packages/core  # core only
-```
-
----
-
-## API Reference
-
-| Method | Path                              | Description                                           |
-| ------ | --------------------------------- | ----------------------------------------------------- |
-| `GET`  | `/search?q=&page=&limit=&ranker=` | Full-text search                                      |
-| `GET`  | `/autocomplete?q=`                | Prefix autocomplete suggestions                       |
-| `GET`  | `/doc/:id`                        | Fetch full document                                   |
-| `GET`  | `/admin/stats`                    | Corpus and crawl statistics                           |
-| `GET`  | `/admin/crawl/feed`               | Recent crawl event feed                               |
-| `GET`  | `/admin/metrics`                  | Latency percentiles and top queries                   |
-| `POST` | `/admin/crawl/start`              | Start a crawl `{ seeds, maxPages, delayMs, workers }` |
-| `POST` | `/admin/crawl/pause`              | Pause the running crawl                               |
-| `POST` | `/admin/crawl/stop`               | Stop and reset                                        |
-
----
-
-## License
-
-MIT
+See [CONTRIBUTING.md](CONTRIBUTING.md). MIT, copyright 2026 Shlok Maharwal.
+Downloaded Wikipedia evaluation text is CC BY-SA and retains source URLs and
+retrieval timestamps under ignored `data/eval/`.

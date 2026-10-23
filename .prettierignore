@@ -11,5 +11,3 @@ package-lock.json
 frontend/package-lock.json
 frontend/bun.lock
 frontend/src/routeTree.gen.ts
-docs/ARCHITECTURE.md
-docs/DESIGN_DECISIONS.md
