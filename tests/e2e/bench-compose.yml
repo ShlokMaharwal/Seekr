@@ -1,0 +1,8 @@
+services:
+  tests:
+    command: ['node', 'tests/e2e/bench.mjs']
+    environment:
+      SEARCH_RATE_LIMIT_MAX: '1000000'
+      BENCH_COMMIT: ${BENCH_COMMIT:-unknown}
+    volumes:
+      - ../../data/bench:/artifacts

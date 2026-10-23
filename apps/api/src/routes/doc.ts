@@ -32,7 +32,8 @@ export function docRouter(store: DocumentStore): Router {
         res.status(404).json({ error: 'Document not found' });
         return;
       }
-      res.json(doc);
+      const { id: docId, url, title, text, crawledAt, wordCount, contentHash } = doc;
+      res.json({ id: docId, url, title, text, crawledAt, wordCount, contentHash });
     } catch (err) {
       next(err);
     }

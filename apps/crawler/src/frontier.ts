@@ -259,6 +259,7 @@ export class UrlFrontier {
     if (status === 'failed') {
       await this.redis.incr(K_STATS_FAIL);
     }
+    if (status === 'success' || status === 'duplicate') await this.redis.incr('stats:fetched');
 
     // Record crawl rate: bucket by minute
     const minute = Math.floor(Date.now() / 60000) * 60000;

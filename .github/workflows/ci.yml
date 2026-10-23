@@ -36,3 +36,16 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/e2e.mjs
+  fixture-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/bench-stack.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fixture-benchmarks
+          path: data/bench/service-bench.json

@@ -20,7 +20,15 @@ export function searchRouter(im: IndexManager, cache: QueryCache, metrics: Metri
     .min(0)
     .max(20)
     .parse(process.env['BM25_TITLE_WEIGHT'] ?? 0);
-  router.use(rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }));
+  const maxRequests = z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1_000_000)
+    .parse(process.env['SEARCH_RATE_LIMIT_MAX'] ?? 60);
+  router.use(
+    rateLimit({ windowMs: 60_000, max: maxRequests, standardHeaders: true, legacyHeaders: false }),
+  );
   router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     const parsed = SearchSchema.safeParse(req.query);
     if (!parsed.success) {

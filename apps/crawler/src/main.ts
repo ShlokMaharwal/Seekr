@@ -27,6 +27,11 @@ async function main(): Promise<void> {
   try {
     while (true) {
       const cmd = await redis.get(K_CONTROL);
+      if (cmd === 'stop') {
+        await new UrlFrontier({ redis }).reset();
+        await redis.set(K_CONTROL, 'stopped');
+        continue;
+      }
 
       if (cmd !== 'start') {
         await sleep(1000);

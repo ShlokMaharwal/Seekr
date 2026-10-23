@@ -9,5 +9,6 @@ COPY packages/core packages/core
 COPY apps/api apps/api
 COPY apps/crawler apps/crawler
 COPY tests/e2e tests/e2e
+COPY bench bench
 RUN npm run build
 CMD ["node", "tests/e2e/run.mjs"]

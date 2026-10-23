@@ -51,6 +51,7 @@ services:
       LOG_LEVEL: info
       INDEX_SNAPSHOT_PATH: /data/index.bin
       BM25_TITLE_WEIGHT: ${BM25_TITLE_WEIGHT:-0}
+      SEARCH_RATE_LIMIT_MAX: ${SEARCH_RATE_LIMIT_MAX:-60}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000,http://localhost:8080}
     volumes:

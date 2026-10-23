@@ -21,7 +21,11 @@
     "test:coverage": "npm run test:coverage -w packages/core",
     "test:frontend": "npm test --prefix frontend -- --maxWorkers=1",
     "build:frontend": "npm run build --prefix frontend",
-    "test:e2e": "node scripts/e2e.mjs"
+    "test:e2e": "node scripts/e2e.mjs",
+    "bench": "node --expose-gc bench/run.mjs",
+    "bench:micro": "node bench/micro.mjs",
+    "bench:eval": "node bench/eval/run.mjs",
+    "bench:stack": "node scripts/bench-stack.mjs"
   },
   "devDependencies": {
     "vitest": "^4.1.12",
