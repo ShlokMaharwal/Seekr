@@ -1,143 +1,53 @@
-/**
- * Search Engine – high-level facade over the core primitives
- *
- * Combines: query parsing → ranking → phrase filtering → snippet generation
- * → typo tolerance ("did you mean").
- */
-
-import { type BM25Options, type InvertedIndex, type RankedResult, type Snippet } from './types.js';
+import type { BM25Options, InvertedIndex, QueryClause, Snippet, Posting } from './types.js';
 import { parseQuery, extractTerms, phraseMatchesDoc } from './query-parser.js';
-import { scoreBM25, scoreTFIDF } from './ranker.js';
-import { getPostings, df } from './inverted-index.js';
+import { scoreBM25, scoreBM25F, scoreTFIDF } from './ranker.js';
+import { df } from './inverted-index.js';
 import { generateSnippet } from './snippet.js';
 import { didYouMean, type BigramIndex } from './typo.js';
-import { tokenizeTerms } from './tokenizer.js';
-import type { QueryClause } from './types.js';
-
 
 export type RankerType = 'bm25' | 'tfidf';
+export interface SearchOptions { ranker?: RankerType; page?: number; limit?: number; bm25?: BM25Options; snippets?: boolean }
+export interface SearchResultItem { docId: string; score: number; snippet: Snippet }
+export interface SearchResult { total: number; results: SearchResultItem[]; didYouMean: string | null }
 
-export interface SearchOptions {
-  ranker?: RankerType;
-  page?: number;
-  limit?: number;
-  bm25?: BM25Options;
-}
-
-export interface SearchResultItem {
-  docId: string;
-  score: number;
-  snippet: Snippet;
-}
-
-export interface SearchResult {
-  total: number;
-  results: SearchResultItem[];
-  didYouMean: string | null;
-}
-
-/**
- * Execute a full search query against `index`.
- *
- * @param index    The inverted index.
- * @param rawQuery The raw user query string.
- * @param docTexts Map from docId → full text (needed for snippet generation).
- * @param bigramIdx Bigram index for typo correction.
- * @param opts     Ranker selection, pagination, BM25 params.
- */
-export function search(
-  index: InvertedIndex,
-  rawQuery: string,
-  docTexts: Map<string, string>,
-  bigramIdx: BigramIndex,
-  opts: SearchOptions = {},
-): SearchResult {
-  const {
-    ranker = 'bm25',
-    page = 1,
-    limit = 10,
-    bm25: bm25Opts = {},
-  } = opts;
-
-  const clause = parseQuery(rawQuery);
-  const queryTerms = extractTerms(clause);
-
-  // Collect hit counts for typo detection
-  const hitCounts = new Map<string, number>();
-  for (const term of queryTerms) {
-    hitCounts.set(term, df(index, term));
-  }
-
-  // "Did you mean?" runs BEFORE we decide on an empty result set
-  const suggestion = didYouMean(queryTerms, hitCounts, bigramIdx);
-
-  // Ranking (top K = page * limit, we'll paginate after)
-  const topK = page * limit;
-  // Apply Boolean and positional constraints before top-K selection.
-  const candidates = new Set<string>();
-  for (const term of queryTerms) {
-    for (const posting of getPostings(index, term)) candidates.add(posting.docId);
-  }
-  for (const id of candidates) {
-    if (!satisfiesPhrase(clause, id, index)) candidates.delete(id);
-  }
-  const ranked: RankedResult[] =
-    ranker === 'bm25'
-      ? scoreBM25(index, queryTerms, topK, bm25Opts, candidates)
-      : scoreTFIDF(index, queryTerms, topK, candidates);
-
-  // Phrase filter: for phrase clauses, verify positional adjacency
-  const filteredRanked = ranked.filter((r) => {
-    return satisfiesPhrase(clause, r.docId, index);
-  });
-
-  const total = candidates.size;
-  const pageSlice = filteredRanked.slice((page - 1) * limit, page * limit);
-
-  const results: SearchResultItem[] = pageSlice.map((r) => {
-    const text = docTexts.get(r.docId) ?? '';
-    const rawTerms = rawQuery
-      .replace(/"/g, '')
-      .split(/\s+/)
-      .filter(Boolean);
-    return {
-      docId: r.docId,
-      score: r.score,
-      snippet: generateSnippet(text, rawTerms),
-    };
-  });
-
-  return { total, results, didYouMean: suggestion };
-}
-
-// ---------------------------------------------------------------------------
-// Phrase clause verifier
-// ---------------------------------------------------------------------------
-
-function satisfiesPhrase(
-  clause: QueryClause,
-  docId: string,
-  index: InvertedIndex,
-): boolean {
-  switch (clause.type) {
-    case 'term':
-      return getPostings(index, clause.value).some((p) => p.docId === docId);
-    case 'phrase': {
-      // Build position map for this doc using positional postings
-      const docPositions = new Map<string, number[]>();
-      for (const term of clause.tokens) {
-        const postings = getPostings(index, term);
-        const posting = postings.find((p) => p.docId === docId);
-        if (posting) docPositions.set(term, posting.positions);
+/** Evaluate the AST as sets before ranking. Phrase verification uses per-term
+ * position maps, avoiding a posting-list scan for every candidate document. */
+function matches(clause: QueryClause, fields: Array<Map<string, Posting[]>>): Set<string> {
+  if (clause.type === 'term') return new Set(fields.flatMap(field => (field.get(clause.value) ?? []).map(p => p.docId)));
+  if (clause.type === 'phrase') {
+    const result = new Set<string>();
+    for (const field of fields) {
+      const maps = new Map(clause.tokens.map(term => [term, new Map((field.get(term) ?? []).map(p => [p.docId, p.positions]))]));
+      const first = maps.get(clause.tokens[0] ?? '');
+      for (const id of first?.keys() ?? []) {
+        const positions = new Map(clause.tokens.map(term => [term, maps.get(term)?.get(id) ?? []]));
+        if (phraseMatchesDoc(clause.tokens, positions, clause.offsets)) result.add(id);
       }
-      return phraseMatchesDoc(clause.tokens, docPositions, clause.offsets);
     }
-    case 'and':
-      return clause.clauses.every((c) => satisfiesPhrase(c, docId, index));
-    case 'or':
-      return clause.clauses.some((c) => satisfiesPhrase(c, docId, index));
+    return result;
   }
+  const children = clause.clauses.map(child => matches(child, fields));
+  if (clause.type === 'or') return new Set(children.flatMap(child => [...child]));
+  children.sort((a, b) => a.size - b.size);
+  const result = children[0] ?? new Set<string>();
+  for (const id of result) if (children.some(child => !child.has(id))) result.delete(id);
+  return result;
 }
 
-// Re-export tokenizer helper for convenience
-export { tokenizeTerms };
+export function search(index: InvertedIndex, rawQuery: string, docTexts: Map<string, string>, bigramIdx: BigramIndex, opts: SearchOptions = {}): SearchResult {
+  const { ranker = 'bm25', page = 1, limit = 10, bm25 = {} } = opts;
+  if (!Number.isInteger(page) || page < 1 || !Number.isInteger(limit) || limit < 1) throw new Error('Invalid pagination');
+  const clause = parseQuery(rawQuery); const terms = extractTerms(clause);
+  const useTitle = ranker === 'bm25' && (bm25.titleWeight ?? 0) > 0;
+  const candidates = matches(clause, useTitle ? [index.postings, index.titlePostings] : [index.postings]);
+  const hits = new Map(terms.map(term => [term, df(index, term) + (useTitle ? (index.titlePostings.get(term)?.length ?? 0) : 0)]));
+  const suggestion = didYouMean(terms, hits, bigramIdx);
+  const ranked = ranker === 'tfidf' ? scoreTFIDF(index, terms, page * limit, candidates)
+    : (useTitle ? scoreBM25F : scoreBM25)(index, terms, page * limit, bm25, candidates);
+  return { total: candidates.size, didYouMean: suggestion,
+    results: ranked.slice((page - 1) * limit).map(r => ({ ...r,
+      snippet: opts.snippets === false ? { text: '', highlights: [] } : generateSnippet(docTexts.get(r.docId) ?? index.docs.get(r.docId)?.text ?? '', rawQuery.replace(/"/g, '').split(/\s+/).filter(Boolean)),
+    })),
+  };
+}
+export { tokenizeTerms } from './tokenizer.js';

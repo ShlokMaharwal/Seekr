@@ -18,12 +18,16 @@ export interface DocMeta {
   length: number;
   title: string;
   url: string;
+  titleLength?: number;
+  text?: string;
 }
 
 /** The full inverted index data structure. */
 export interface InvertedIndex {
   /** term → postings list */
   postings: Map<string, Posting[]>;
+  titlePostings: Map<string, Posting[]>;
+  avgTitleLen: number;
   /** docId → metadata */
   docs: Map<string, DocMeta>;
   /** Total number of documents in the corpus. */
@@ -56,6 +60,7 @@ export interface Snippet {
 export interface BM25Options {
   k1?: number;
   b?: number;
+  titleWeight?: number;
 }
 
 /** A single search hit returned by the API. */
@@ -84,6 +89,8 @@ export interface StoredDocument {
   crawledAt: string;
   wordCount: number;
   contentHash: string;
+  simHash?: string;
+  simHashBands?: string[];
 }
 
 /** Crawl status snapshot. */

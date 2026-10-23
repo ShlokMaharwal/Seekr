@@ -15,6 +15,7 @@ const SearchSchema = z.object({
 
 export function searchRouter(im: IndexManager, cache: QueryCache, metrics: MetricsTracker): Router {
   const router = Router();
+  const titleWeight = z.coerce.number().min(0).max(20).parse(process.env['BM25_TITLE_WEIGHT'] ?? 0);
   router.use(rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }));
   router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     const parsed = SearchSchema.safeParse(req.query);
@@ -31,7 +32,8 @@ export function searchRouter(im: IndexManager, cache: QueryCache, metrics: Metri
       await metrics.recordQuery(q).catch(() => {});
       im.recordQuery(extractTerms(parseQuery(q)));
       if (cached) { res.json(cached); return; }
-      const result = search(im.index, q, im.docTexts, im.bigramIndex, { page, limit, ranker });
+      const result = search(im.index, q, im.docTexts, im.bigramIndex, { page, limit, ranker,
+        bm25: { titleWeight } });
       const response = {
         total: result.total,
         tookMs: Math.round((performance.now() - start) * 100) / 100,

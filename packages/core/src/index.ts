@@ -37,7 +37,8 @@ export {
 export { MinHeap, TopKHeap } from './heap.js';
 
 // Rankers
-export { scoreBM25, scoreTFIDF } from './ranker.js';
+export { scoreBM25, scoreTFIDF, scoreBM25F } from './ranker.js';
+export { simHash, simHashBands, hammingDistance } from './simhash.js';
 
 // Query parser
 export { parseQuery, extractTerms, phraseMatchesDoc } from './query-parser.js';
@@ -60,7 +61,7 @@ export type { TypoCandidate, BigramIndex } from './typo.js';
 export { generateSnippet } from './snippet.js';
 
 // Serialization
-export { saveIndex, loadIndex, loadOrCreate } from './serializer.js';
+export { saveIndex, loadIndex, loadOrCreate, encodeIndex, decodeIndex, encodeLegacyIndex } from './serializer.js';
 
 // Search engine facade
 export { search } from './search-engine.js';

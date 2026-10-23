@@ -85,7 +85,7 @@ export type BigramIndex = Map<string, Set<string>>;
 export function buildBigramIndex(vocabulary: Iterable<string>): BigramIndex {
   const index: BigramIndex = new Map();
   for (const term of vocabulary) {
-    for (const bg of bigrams(term)) {
+    for (const bg of bigrams(`^${term}$`)) {
       let s = index.get(bg);
       if (s === undefined) {
         s = new Set();
@@ -101,7 +101,7 @@ export function buildBigramIndex(vocabulary: Iterable<string>): BigramIndex {
  * Add a single term to an existing bigram index (for incremental updates).
  */
 export function addTermToBigramIndex(index: BigramIndex, term: string): void {
-  for (const bg of bigrams(term)) {
+  for (const bg of bigrams(`^${term}$`)) {
     let s = index.get(bg);
     if (s === undefined) {
       s = new Set();
@@ -134,7 +134,7 @@ export function findCandidates(
   maxDist = 2,
 ): TypoCandidate[] {
   // Phase 1: bigram filter
-  const termBigrams = bigrams(queryTerm);
+  const termBigrams = bigrams(`^${queryTerm}$`);
   const candidateSet = new Set<string>();
 
   for (const bg of termBigrams) {

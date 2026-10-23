@@ -12,6 +12,7 @@
 
 import { type Collection, MongoClient } from 'mongodb';
 import { logger } from './logger.js';
+import { hammingDistance, simHashBands } from '@seekr/core';
 
 /** Document as stored in MongoDB. */
 export interface StoredDocument {
@@ -22,6 +23,8 @@ export interface StoredDocument {
   crawledAt: string;
   wordCount: number;
   contentHash: string;
+  simHash?: string;
+  simHashBands?: string[];
 }
 
 export class DocumentStore {
@@ -38,6 +41,7 @@ export class DocumentStore {
     await this.collection.createIndex({ url: 1 }, { unique: true });
     await this.collection.createIndex({ contentHash: 1 });
     await this.collection.createIndex({ crawledAt: -1 });
+    await this.collection.createIndex({ simHashBands: 1 });
     logger.info('DocumentStore connected');
   }
 
@@ -74,6 +78,16 @@ export class DocumentStore {
   async existsByContentHash(hash: string): Promise<boolean> {
     const doc = await this.col.findOne({ contentHash: hash }, { projection: { _id: 1 } });
     return doc !== null;
+  }
+
+  async hasNearDuplicate(hash: string, url: string, threshold: number): Promise<boolean> {
+    if (threshold < 0) return false;
+    if (!Number.isInteger(threshold) || threshold > 3) throw new Error('SimHash threshold must be -1..3');
+    const cursor = this.col.find({ url: { $ne: url }, simHashBands: { $in: simHashBands(hash) } }, { projection: { simHash: 1 } });
+    for await (const candidate of cursor) {
+      if (candidate.simHash && hammingDistance(hash, candidate.simHash) <= threshold) return true;
+    }
+    return false;
   }
 
   async count(): Promise<number> {

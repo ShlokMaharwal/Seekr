@@ -21,6 +21,8 @@ import { tokenize } from './tokenizer.js';
 export function createIndex(): InvertedIndex {
   return {
     postings: new Map(),
+    titlePostings: new Map(),
+    avgTitleLen: 0,
     docs: new Map(),
     N: 0,
     avgDocLen: 0,
@@ -72,7 +74,19 @@ export function addDocument(
   }
 
   // Store doc metadata
-  index.docs.set(docId, { docId, length, title, url });
+  const titleTokens = tokenize(title);
+  const titleTerms = new Map<string, number[]>();
+  for (const token of titleTokens) {
+    const positions = titleTerms.get(token.term) ?? [];
+    positions.push(token.position); titleTerms.set(token.term, positions);
+  }
+  for (const [term, positions] of titleTerms) {
+    const list = index.titlePostings.get(term) ?? [];
+    list.push({ docId, tf: positions.length, positions }); index.titlePostings.set(term, list);
+  }
+  const prevTitleTotal = Math.round(index.N * index.avgTitleLen);
+  index.avgTitleLen = (prevTitleTotal + titleTokens.length) / (index.N + 1);
+  index.docs.set(docId, { docId, length, title, url, titleLength: titleTokens.length, text });
 
   // Update corpus stats
   const prevTotal = Math.round(index.N * index.avgDocLen);
@@ -90,8 +104,15 @@ export function removeDocument(index: InvertedIndex, docId: string): void {
 
   const prevTotal = Math.round(index.N * index.avgDocLen);
   index.N -= 1;
+  const prevTitles = Math.round((index.N + 1) * index.avgTitleLen);
+  index.avgTitleLen = index.N ? (prevTitles - (meta.titleLength ?? 0)) / index.N : 0;
   index.avgDocLen = index.N > 0 ? (prevTotal - meta.length) / index.N : 0;
   index.docs.delete(docId);
+  for (const [term, list] of index.titlePostings) {
+    const remaining = list.filter(p => p.docId !== docId);
+    if (remaining.length) index.titlePostings.set(term, remaining);
+    else index.titlePostings.delete(term);
+  }
 
   // Remove postings for this docId
   for (const [term, list] of index.postings) {

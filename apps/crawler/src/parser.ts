@@ -14,6 +14,7 @@
 import * as cheerio from 'cheerio';
 import { URL } from 'url';
 import crypto from 'crypto';
+import { simHash } from '@seekr/core';
 
 export interface ParseResult {
   title: string;
@@ -21,6 +22,7 @@ export interface ParseResult {
   links: string[];
   /** SHA-1 hash of normalized text for content-level deduplication */
   contentHash: string;
+  simHash: string;
 }
 
 // Tags to remove entirely before extracting text
@@ -76,8 +78,8 @@ export function parseHtml(
 
 
   // Content hash for deduplication
-  const normalized = text.toLowerCase().slice(0, 10_000);
-  const contentHash = crypto.createHash('sha1').update(normalized).digest('hex');
+  const normalized = text.toLowerCase();
+  const contentHash = crypto.createHash('sha256').update(normalized).digest('hex');
 
   // Extract and normalize links
   const links: string[] = [];
@@ -102,7 +104,10 @@ export function parseHtml(
 
     // Filter to allowed prefixes if specified
     if (allowedPrefixes.length > 0) {
-      const allowed = allowedPrefixes.some((p) => normalized.startsWith(p));
+      const allowed = allowedPrefixes.some((p) => {
+        const prefix = new URL(p);
+        return resolved.origin === prefix.origin && resolved.pathname.startsWith(prefix.pathname);
+      });
       if (!allowed) return;
     }
 
@@ -112,7 +117,7 @@ export function parseHtml(
   // Deduplicate links
   const uniqueLinks = [...new Set(links)];
 
-  return { title, text, links: uniqueLinks, contentHash };
+  return { title, text, links: uniqueLinks, contentHash, simHash: simHash(text) };
 }
 
 /**

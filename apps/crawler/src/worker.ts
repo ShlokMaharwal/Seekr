@@ -13,6 +13,8 @@ import { fetchUrl } from './fetcher.js';
 import { parseHtml, extractDomain } from './parser.js';
 import { DocumentStore } from './store.js';
 import { logger } from './logger.js';
+import { createHash } from 'node:crypto';
+import { simHashBands } from '@seekr/core';
 
 export const INDEXER_STREAM = 'stream:new-docs';
 
@@ -267,11 +269,11 @@ export class CrawlerWorker {
         return;
       }
 
-      const { html } = await fetchUrl(url);
+      const { html, url: finalUrl } = await fetchUrl(url);
 
       const parsed = parseHtml(
         html,
-        url,
+        finalUrl,
         this.config.allowedPrefixes,
       );
 
@@ -283,7 +285,15 @@ export class CrawlerWorker {
       }
 
       // Suppress content that already exists in the document store.
-      if (await this.store.existsByContentHash(parsed.contentHash)) {
+      const threshold = Number(process.env['SIMHASH_MAX_DISTANCE'] ?? 3);
+      if (!Number.isInteger(threshold) || threshold < -1 || threshold > 3) throw new Error('SIMHASH_MAX_DISTANCE must be -1..3');
+      // Discover links even when the page itself is a duplicate.
+      for (const link of parsed.links) {
+        if (!this.running || this.stopRequested) break;
+        await this.frontier.enqueue(link, extractDomain(link));
+      }
+      if (await this.store.existsByContentHash(parsed.contentHash) ||
+          (parsed.text.split(/\s+/).length >= 20 && await this.store.hasNearDuplicate(parsed.simHash, url, threshold))) {
         await this.frontier.recordEvent(url, 'duplicate');
 
         logger.info(
@@ -307,6 +317,8 @@ export class CrawlerWorker {
         crawledAt: new Date().toISOString(),
         wordCount,
         contentHash: parsed.contentHash,
+        simHash: parsed.simHash,
+        simHashBands: simHashBands(parsed.simHash),
       };
 
       const isNew = await this.store.upsert(doc);
@@ -319,7 +331,7 @@ export class CrawlerWorker {
         'id', id,
         'url', url,
         'title', parsed.title,
-        'text', parsed.text.slice(0, 100_000),
+        'text', parsed.text,
         'crawledAt', doc.crawledAt,
         'wordCount', String(wordCount),
       );
@@ -331,15 +343,6 @@ export class CrawlerWorker {
         'Page crawled',
       );
 
-      for (const link of parsed.links) {
-        if (!this.running || this.stopRequested) {
-          break;
-        }
-
-        const domain = extractDomain(link);
-
-        await this.frontier.enqueue(link, domain);
-      }
     } catch (err) {
       await this.frontier.recordEvent(url, 'failed');
 
@@ -352,13 +355,7 @@ export class CrawlerWorker {
 }
 
 function urlId(url: string): string {
-  let hash = 5381;
-
-  for (let i = 0; i < url.length; i++) {
-    hash = ((hash << 5) + hash + url.charCodeAt(i)) >>> 0;
-  }
-
-  return hash.toString(36);
+  return createHash('sha256').update(url).digest('hex');
 }
 
 function sleep(ms: number): Promise<void> {

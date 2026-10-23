@@ -19,6 +19,7 @@ import {
   type BigramIndex,
   createIndex,
   addDocument,
+  removeDocument,
   buildBigramIndex,
   addTermToBigramIndex,
   loadIndex,
@@ -54,7 +55,7 @@ export class IndexManager {
   constructor(redis: Redis, store?: DocumentStore, snapshotPath?: string) {
     this.redis = redis;
     this.store = store;
-    this.snapshotPath = snapshotPath ?? process.env['INDEX_SNAPSHOT_PATH'] ?? './data/index.json';
+    this.snapshotPath = snapshotPath ?? process.env['INDEX_SNAPSHOT_PATH'] ?? './data/index.bin';
   }
 
   /**
@@ -65,7 +66,12 @@ export class IndexManager {
     logger.info({ path: this.snapshotPath }, 'Loading index snapshot');
 
     try {
-      this.index = await loadIndex(this.snapshotPath);
+      this.index = await loadIndex(this.snapshotPath).catch(async (err: unknown) => {
+        if (this.snapshotPath.endsWith('.bin') && err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+          return loadIndex(this.snapshotPath.replace(/\.bin$/, '.json'));
+        }
+        throw err;
+      });
       logger.info({ terms: termCount(this.index), docs: this.index.N }, 'Index snapshot loaded successfully');
     } catch (err) {
       logger.warn({ err, path: this.snapshotPath }, 'Snapshot missing, partial, or corrupted; starting with empty index');
@@ -81,13 +87,19 @@ export class IndexManager {
       // Reconcile acknowledged documents newer than the last snapshot and
       // restore snippet text. The Mongo cursor bounds transient memory.
       if (docStore) {
-        this.index = createIndex();
-        this.docTexts.clear();
-        this.trie.clear();
-        this.bigramIndex.clear();
+        const present = new Set<string>();
         for await (const doc of docStore.stream()) {
-          this.indexDocument(doc.id, doc.text, doc.title, doc.url);
+          present.add(doc.id);
+          const existing = this.index.docs.get(doc.id);
+          if (existing?.text !== doc.text || existing.title !== doc.title || existing.url !== doc.url) {
+            this.indexDocument(doc.id, doc.text, doc.title, doc.url);
+          } else this.docTexts.set(doc.id, doc.text);
         }
+        let removed = false;
+        for (const id of this.index.docs.keys()) if (!present.has(id)) {
+          removeDocument(this.index, id); this.docTexts.delete(id); removed = true;
+        }
+        if (removed) this.rebuildAuxiliaryStructures();
       }
     }
 
@@ -122,9 +134,11 @@ export class IndexManager {
    * Reconstruct BigramIndex and Trie from existing InvertedIndex postings.
    */
   private rebuildAuxiliaryStructures(): void {
-    this.bigramIndex = buildBigramIndex(this.index.postings.keys());
+    for (const doc of this.index.docs.values()) if (doc.text !== undefined) this.docTexts.set(doc.docId, doc.text);
+    const vocabulary = new Set([...this.index.postings.keys(), ...this.index.titlePostings.keys()]);
+    this.bigramIndex = buildBigramIndex(vocabulary);
     this.trie.clear();
-    for (const term of this.index.postings.keys()) {
+    for (const term of vocabulary) {
       const posting = this.index.postings.get(term);
       const freq = posting?.reduce((s: number, p: { tf: number }) => s + p.tf, 0) ?? 1;
       this.trie.insert(term, freq);
@@ -287,6 +301,8 @@ export class IndexManager {
    * Updates postings, bigram index, and trie without duplicates.
    */
   indexDocument(id: string, text: string, title: string, url: string): void {
+    const current = this.index.docs.get(id);
+    if (current?.text === text && current.title === title && current.url === url) { this.docTexts.set(id, text); return; }
     const isUpdate = this.index.docs.has(id);
     // addDocument atomically removes old postings first if id exists
     addDocument(this.index, id, text, title, url);
@@ -297,7 +313,7 @@ export class IndexManager {
       this.rebuildAuxiliaryStructures();
     } else {
       const frequencies = new Map<string, number>();
-      for (const term of tokenizeTerms(text)) frequencies.set(term, (frequencies.get(term) ?? 0) + 1);
+      for (const term of tokenizeTerms(`${title} ${text}`)) frequencies.set(term, (frequencies.get(term) ?? 0) + 1);
       for (const [term, frequency] of frequencies) {
         addTermToBigramIndex(this.bigramIndex, term);
         this.trie.insert(term, frequency);
