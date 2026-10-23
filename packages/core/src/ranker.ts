@@ -45,6 +45,7 @@ export function scoreTFIDF(
   index: InvertedIndex,
   queryTerms: string[],
   k = 10,
+  allowed?: ReadonlySet<string>,
 ): RankedResult[] {
   const { N } = index;
   // Accumulate scores per docId
@@ -58,6 +59,7 @@ export function scoreTFIDF(
     const idf = Math.log((N + 1) / (docFreq + 1)) + 1;
 
     for (const { docId, tf } of getPostings(index, term)) {
+      if (allowed && !allowed.has(docId)) continue;
       // Sublinear TF scaling: 1 + log(tf)
       const tfWeight = tf > 0 ? 1 + Math.log(tf) : 0;
       scores.set(docId, (scores.get(docId) ?? 0) + tfWeight * idf);
@@ -83,6 +85,7 @@ export function scoreBM25(
   queryTerms: string[],
   k = 10,
   { k1 = 1.2, b = 0.75 }: BM25Options = {},
+  allowed?: ReadonlySet<string>,
 ): RankedResult[] {
   const { N, avgDocLen, docs } = index;
   const scores = new Map<string, number>();
@@ -95,6 +98,7 @@ export function scoreBM25(
     const idf = Math.log((N - docFreq + 0.5) / (docFreq + 0.5) + 1);
 
     for (const { docId, tf } of getPostings(index, term)) {
+      if (allowed && !allowed.has(docId)) continue;
       const docLen = docs.get(docId)?.length ?? avgDocLen;
       // Guard against division by zero if corpus has 0 tokens or documents
       const safeAvgDocLen = avgDocLen > 0 ? avgDocLen : 1;

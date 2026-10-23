@@ -37,7 +37,7 @@ describe('UrlFrontier Reliable Queue', () => {
 
     expect(mockRedis.zrem).toHaveBeenCalledWith(
       'frontier:processing:worker-123',
-      JSON.stringify({ url: 'https://example.com/page-1', domain: 'example.com' }),
+      'https://example.com/page-1',
     );
   });
 
@@ -52,14 +52,15 @@ describe('UrlFrontier Reliable Queue', () => {
       zadd: vi.fn().mockResolvedValue(1),
       incr: vi.fn().mockResolvedValue(1),
       zrem: vi.fn().mockResolvedValue(1),
+      eval: vi.fn().mockResolvedValue(1),
     } as unknown as Redis;
 
     const frontier = new UrlFrontier({ redis: mockRedis });
     const reaped = await frontier.reapStale(60_000);
 
     expect(reaped).toBe(1);
-    expect(mockRedis.lpush).toHaveBeenCalledWith('frontier:queue:example.com', 'https://example.com/stale-page');
-    expect(mockRedis.zadd).toHaveBeenCalledWith('frontier:domains', 'NX', 0, 'example.com');
-    expect(mockRedis.zrem).toHaveBeenCalledWith('frontier:processing:worker-crashed', stalePayload);
+    expect(mockRedis.eval).toHaveBeenCalledWith(expect.any(String), 3,
+      'frontier:processing:worker-crashed', 'frontier:queue:example.com', 'frontier:domains',
+      stalePayload, expect.any(Number), 'https://example.com/stale-page', 'example.com');
   });
 });

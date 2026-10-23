@@ -38,7 +38,7 @@ export class DocumentStore {
   }
 
   async *stream(): AsyncGenerator<StoredDocument> {
-    const cursor = this.col.find({}, { projection: { _id: 0 } });
+    const cursor = this.col.find({}, { projection: { _id: 0 }, batchSize: 100 });
     for await (const doc of cursor) {
       yield doc;
     }

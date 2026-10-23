@@ -5,6 +5,7 @@ import os from 'os';
 import { IndexManager } from '../src/index-manager.js';
 import type { DocumentStore } from '../src/store.js';
 import type { Redis } from 'ioredis';
+import { saveIndex, search } from '@seekr/core';
 
 describe('IndexManager', () => {
   let tempDir: string;
@@ -139,5 +140,37 @@ describe('IndexManager', () => {
     expect(manager.index.N).toBe(1);
     expect(mockRedis.xack).toHaveBeenCalledWith('stream:new-docs', 'indexer-group', '1002-0');
     expect(mockRedis.xack).toHaveBeenCalledWith('stream:new-docs', 'indexer-group', '1003-0');
+  });
+
+  it('replaces old terms and keeps corpus statistics correct', () => {
+    const manager = new IndexManager(mockRedis, undefined, snapshotFile);
+    manager.indexDocument('a', 'binary tree', 'A', 'https://example.org/a');
+    manager.indexDocument('b', 'graph network', 'B', 'https://example.org/b');
+    manager.indexDocument('a', 'database transaction lock', 'A2', 'https://example.org/a');
+    expect(manager.index.N).toBe(2);
+    expect(manager.index.avgDocLen).toBe(2.5);
+    expect(manager.index.postings.has('binari')).toBe(false);
+    expect(manager.trie.suggest('bin')).toEqual([]);
+    expect(manager.docTexts.get('a')).toBe('database transaction lock');
+  });
+
+  it('restores snippets and acknowledged documents newer than a valid snapshot', async () => {
+    const old = new IndexManager(mockRedis, undefined, snapshotFile);
+    old.indexDocument('a', 'outdated text', 'Old', 'https://example.org/a');
+    await saveIndex(old.index, snapshotFile);
+    const mockStore = { stream: async function* () {
+      yield { id: 'a', text: 'binary tree', title: 'Updated', url: 'https://example.org/a' };
+      yield { id: 'b', text: 'binary graph', title: 'New', url: 'https://example.org/b' };
+    } } as unknown as DocumentStore;
+    const manager = new IndexManager(mockRedis, mockStore, snapshotFile);
+    await manager.load();
+    expect(manager.index.N).toBe(2);
+    expect(search(manager.index, 'binary', manager.docTexts, manager.bigramIndex).results.every(r => r.snippet.text.length > 0)).toBe(true);
+  });
+
+  it('drains every XAUTOCLAIM batch', async () => {
+    vi.mocked(mockRedis.xautoclaim).mockResolvedValueOnce(['10-0', []]).mockResolvedValueOnce(['0-0', []]);
+    await new IndexManager(mockRedis, undefined, snapshotFile).recoverPendingMessages();
+    expect(mockRedis.xautoclaim).toHaveBeenCalledTimes(2);
   });
 });

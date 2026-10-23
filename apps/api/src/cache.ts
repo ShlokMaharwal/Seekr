@@ -12,6 +12,7 @@
  */
 
 import { type Redis } from 'ioredis';
+import { createHash } from 'node:crypto';
 import type { SearchResponse } from '@seekr/core';
 
 const CACHE_TTL_SECONDS = 60;
@@ -22,7 +23,7 @@ export class QueryCache {
 
   private key(q: string, ranker: string, page: number, limit: number): string {
     // Simple deterministic key that won't exceed Redis key size limits
-    const safe = q.slice(0, 200).replace(/[^a-z0-9 ]/gi, '_');
+    const safe = createHash('sha256').update(q).digest('hex');
     return `${KEY_PREFIX}${ranker}:${page}:${limit}:${safe}`;
   }
 

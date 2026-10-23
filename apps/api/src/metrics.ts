@@ -96,12 +96,11 @@ export class MetricsTracker {
 
     const result: Array<{ ts: string; count: number }> = [];
     for (let i = 0; i < entries.length - 1; i += 2) {
-      const ts = parseInt(entries[i + 1] ?? '0', 10);
+      const ts = parseInt(entries[i] ?? '0', 10);
       // The member is the timestamp string, scores are used for ordering;
       // The actual count is stored as the ZSET score via ZINCRBY
       // Re-fetch the score which represents the page count for that bucket
-      const score = parseFloat(entries[i + 1] ?? '0');
-      const memberScore = await this.redis.zscore(K_CRAWL_RATE, entries[i] ?? '');
+      const memberScore = await this.redis.hget(`${K_CRAWL_RATE}:counts`, entries[i] ?? '');
       result.push({
         ts: new Date(ts).toISOString(),
         count: Math.round(parseFloat(memberScore ?? '0')),

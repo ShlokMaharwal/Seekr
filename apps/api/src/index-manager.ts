@@ -24,6 +24,7 @@ import {
   saveIndex,
   termCount,
   Trie,
+  tokenizeTerms,
 } from '@seekr/core';
 import { logger } from './logger.js';
 import type { DocumentStore } from './store.js';
@@ -59,10 +60,8 @@ export class IndexManager {
     const docStore = overrideStore ?? this.store;
     logger.info({ path: this.snapshotPath }, 'Loading index snapshot');
 
-    let loaded = false;
     try {
       this.index = await loadIndex(this.snapshotPath);
-      loaded = true;
       logger.info({ terms: termCount(this.index), docs: this.index.N }, 'Index snapshot loaded successfully');
     } catch (err) {
       logger.warn({ err, path: this.snapshotPath }, 'Snapshot missing, partial, or corrupted; starting with empty index');
@@ -75,6 +74,17 @@ export class IndexManager {
       await this.rebuildFromStore(docStore);
     } else {
       this.rebuildAuxiliaryStructures();
+      // Reconcile acknowledged documents newer than the last snapshot and
+      // restore snippet text. The Mongo cursor bounds transient memory.
+      if (docStore) {
+        this.index = createIndex();
+        this.docTexts.clear();
+        this.trie.clear();
+        this.bigramIndex.clear();
+        for await (const doc of docStore.stream()) {
+          this.indexDocument(doc.id, doc.text, doc.title, doc.url);
+        }
+      }
     }
 
     logger.info({ terms: termCount(this.index), docs: this.index.N }, 'Index ready');
@@ -109,6 +119,7 @@ export class IndexManager {
    */
   private rebuildAuxiliaryStructures(): void {
     this.bigramIndex = buildBigramIndex(this.index.postings.keys());
+    this.trie.clear();
     for (const term of this.index.postings.keys()) {
       const posting = this.index.postings.get(term);
       const freq = posting?.reduce((s: number, p: { tf: number }) => s + p.tf, 0) ?? 1;
@@ -172,25 +183,18 @@ export class IndexManager {
 
       // 2. Claim pending messages from other consumers idle for > 30s using XAUTOCLAIM
       try {
-        const claimResult = (await (this.redis as unknown as {
-          xautoclaim: (
-            stream: string,
-            group: string,
-            consumer: string,
-            minIdleTime: number,
-            start: string,
-            countKeyword: string,
-            count: number,
-          ) => Promise<[string, Array<[string, string[]]>, string[]]>;
-        }).xautoclaim(
+        let cursor = '0-0';
+        do {
+        const claimResult = await this.redis.xautoclaim(
           INDEXER_STREAM,
           CONSUMER_GROUP,
           CONSUMER_NAME,
           30000,
-          '0-0',
+          cursor,
           'COUNT',
           100,
-        )) as [string, Array<[string, string[]]>, string[]] | null;
+        ) as [string, Array<[string, string[]]>, string[]];
+        cursor = claimResult[0];
 
         if (claimResult && claimResult[1] && claimResult[1].length > 0) {
           logger.info({ count: claimResult[1].length }, 'Claimed abandoned pending messages via XAUTOCLAIM');
@@ -198,6 +202,7 @@ export class IndexManager {
             await this.processStreamMessage(msgId, fields);
           }
         }
+        } while (cursor !== '0-0');
       } catch (err) {
         logger.debug({ err }, 'XAUTOCLAIM not supported or completed with error');
       }
@@ -207,8 +212,13 @@ export class IndexManager {
   }
 
   private async consumeLoop(): Promise<void> {
+    let nextRecovery = Date.now() + 30_000;
     while (this.running) {
       try {
+        if (Date.now() >= nextRecovery) {
+          await this.recoverPendingMessages();
+          nextRecovery = Date.now() + 30_000;
+        }
         // Read up to 20 messages, block for 1 second if stream is empty
         const results = (await this.redis.xreadgroup(
           'GROUP',
@@ -274,27 +284,19 @@ export class IndexManager {
    */
   indexDocument(id: string, text: string, title: string, url: string): void {
     const isUpdate = this.index.docs.has(id);
-    const termsBefore = isUpdate ? new Set(this.index.postings.keys()) : null;
-
     // addDocument atomically removes old postings first if id exists
     addDocument(this.index, id, text, title, url);
     this.docTexts.set(id, text);
 
     // Update bigram index and trie
-    if (!isUpdate) {
-      for (const term of this.index.postings.keys()) {
-        if (!this.bigramIndex.has(term.slice(0, 2))) {
-          addTermToBigramIndex(this.bigramIndex, term);
-        }
-        this.trie.insert(term, 1);
-      }
+    if (isUpdate) {
+      this.rebuildAuxiliaryStructures();
     } else {
-      // For updates, only register newly introduced terms in bigrams and trie
-      for (const term of this.index.postings.keys()) {
-        if (termsBefore && !termsBefore.has(term)) {
-          addTermToBigramIndex(this.bigramIndex, term);
-          this.trie.insert(term, 1);
-        }
+      const frequencies = new Map<string, number>();
+      for (const term of tokenizeTerms(text)) frequencies.set(term, (frequencies.get(term) ?? 0) + 1);
+      for (const [term, frequency] of frequencies) {
+        addTermToBigramIndex(this.bigramIndex, term);
+        this.trie.insert(term, frequency);
       }
     }
   }

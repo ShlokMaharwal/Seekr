@@ -110,6 +110,11 @@ export function adminRouter(
       return;
     }
     try {
+      if (await redis.get(K_CONTROL) === 'pause') {
+        await redis.set(K_CONTROL, 'resume');
+        res.status(204).end();
+        return;
+      }
       await redis.set(K_CONFIG, JSON.stringify(parsed.data));
       await redis.set(K_CONTROL, 'start');
       res.status(204).end();
@@ -162,8 +167,8 @@ async function computePagesPerMin(redis: Redis): Promise<number> {
   );
 
   let total = 0;
-  for (let i = 1; i < entries.length; i += 2) {
-    total += parseFloat(entries[i] ?? '0');
+  for (let i = 0; i < entries.length; i += 2) {
+    total += Number(await redis.hget(`${K_CRAWL_RATE}:counts`, entries[i] ?? ''));
   }
   return Math.round(total);
 }

@@ -82,8 +82,12 @@ else
 end
 
 -- Record in reliable worker processing set with current timestamp
-local payload = cjson.encode({url = url, domain = domain})
+-- Pass the exact JSON bytes through JS so completion does not depend on
+-- Lua cjson object key ordering.
+local payload = url
 redis.call('ZADD', KEYS[2], now, payload)
+redis.call('HSET', 'frontier:next', domain, next_ts)
+redis.call('DECR', 'stats:queueSize')
 
 return {domain, url}
 `;
@@ -111,16 +115,19 @@ export class UrlFrontier {
     const hash = urlHash(url);
 
     // SADD returns 1 if the element was new, 0 if already present
-    const added = await this.redis.sadd(K_SEEN, hash);
+    const added = await this.redis.eval(`
+      if redis.call('SADD', KEYS[1], ARGV[1]) == 0 then return 0 end
+      redis.call('RPUSH', KEYS[2], ARGV[2])
+      local next = redis.call('HGET', 'frontier:next', ARGV[3]) or 0
+      redis.call('ZADD', KEYS[3], 'NX', next, ARGV[3])
+      redis.call('INCR', 'stats:queueSize')
+      return 1
+    `, 3, K_SEEN, domainKey(domain), K_DOMAINS, hash, url, domain);
     if (added === 0) {
       await this.redis.incr(K_STATS_DUPS);
       return false;
     }
 
-    await this.redis.rpush(domainKey(domain), url);
-    // Add domain to domains ZSET if not present (score = 0 = immediately eligible)
-    await this.redis.zadd(K_DOMAINS, 'NX', 0, domain);
-    await this.redis.incr(K_STATS_QUEUE);
     return true;
   }
 
@@ -142,7 +149,6 @@ export class UrlFrontier {
     )) as [string, string] | null;
 
     if (result == null) return null;
-    await this.redis.decr(K_STATS_QUEUE);
     return { domain: result[0] as string, url: result[1] as string };
   }
 
@@ -150,8 +156,13 @@ export class UrlFrontier {
    * Remove a URL from the worker's processing set when processing completes.
    */
   async complete(workerId: string, url: string, domain: string): Promise<void> {
-    const payload = JSON.stringify({ url, domain });
-    await this.redis.zrem(processingKey(workerId), payload);
+    await this.redis.zrem(processingKey(workerId), url);
+    // Also accept the previous snapshot's processing representation.
+    await this.redis.zrem(processingKey(workerId), JSON.stringify({ url, domain }));
+  }
+
+  async renew(workerId: string, url: string): Promise<void> {
+    await this.redis.zadd(processingKey(workerId), 'XX', Date.now(), url);
   }
 
   /**
@@ -178,14 +189,21 @@ export class UrlFrontier {
         const staleMembers = await this.redis.zrangebyscore(pKey, '-inf', cutoff);
         for (const raw of staleMembers) {
           try {
-            const parsed = JSON.parse(raw) as { url: string; domain: string };
-            // Re-enqueue the URL at the front of its domain queue
-            await this.redis.lpush(domainKey(parsed.domain), parsed.url);
-            await this.redis.zadd(K_DOMAINS, 'NX', 0, parsed.domain);
-            await this.redis.incr(K_STATS_QUEUE);
-            await this.redis.zrem(pKey, raw);
-            reapedCount++;
-            logger.warn({ url: parsed.url, domain: parsed.domain, workerKey: pKey }, 'Reaped stale URL from crashed/stuck worker');
+            const legacy: unknown = raw.startsWith('{') ? JSON.parse(raw) : null;
+            const url = legacy && typeof legacy === 'object' && 'url' in legacy && typeof legacy.url === 'string' ? legacy.url : raw;
+            const domain = new URL(url).hostname;
+            // Claim and requeue in ONE operation: competing reapers must not
+            // insert the same stale URL twice, or race a renewed lease.
+            const claimed = await this.redis.eval(`
+              local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
+              if not score or tonumber(score) > tonumber(ARGV[2]) then return 0 end
+              redis.call('ZREM', KEYS[1], ARGV[1])
+              redis.call('LPUSH', KEYS[2], ARGV[3])
+              redis.call('ZADD', KEYS[3], 'NX', 0, ARGV[4])
+              redis.call('INCR', 'stats:queueSize')
+              return 1
+            `, 3, pKey, domainKey(domain), K_DOMAINS, raw, cutoff, url, domain);
+            if (claimed === 1) reapedCount++;
           } catch {
             await this.redis.zrem(pKey, raw);
           }
@@ -217,8 +235,12 @@ export class UrlFrontier {
 
     // Record crawl rate: bucket by minute
     const minute = Math.floor(Date.now() / 60000) * 60000;
-    await this.redis.zadd(K_CRAWL_RATE, 'NX', minute, String(minute));
-    await this.redis.zincrby(K_CRAWL_RATE, 1, String(minute));
+    if (status === 'success') {
+      await this.redis.zadd(K_CRAWL_RATE, minute, String(minute));
+      await this.redis.hincrby(`${K_CRAWL_RATE}:counts`, String(minute), 1);
+    }
+    const expired = await this.redis.zrangebyscore(K_CRAWL_RATE, '-inf', minute - 60 * 60 * 1000);
+    if (expired.length) await this.redis.hdel(`${K_CRAWL_RATE}:counts`, ...expired);
     // Keep only last 60 minutes
     await this.redis.zremrangebyscore(K_CRAWL_RATE, '-inf', String(minute - 60 * 60 * 1000));
   }
@@ -242,6 +264,7 @@ export class UrlFrontier {
     }
     pipeline.del(K_DOMAINS);
     pipeline.del(K_SEEN);
+    pipeline.del('frontier:next');
     pipeline.set(K_STATS_QUEUE, '0');
 
     // Also remove any worker processing queues

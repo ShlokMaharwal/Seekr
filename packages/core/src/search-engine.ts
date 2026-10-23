@@ -73,17 +73,25 @@ export function search(
 
   // Ranking (top K = page * limit, we'll paginate after)
   const topK = page * limit;
+  // Apply Boolean and positional constraints before top-K selection.
+  const candidates = new Set<string>();
+  for (const term of queryTerms) {
+    for (const posting of getPostings(index, term)) candidates.add(posting.docId);
+  }
+  for (const id of candidates) {
+    if (!satisfiesPhrase(clause, id, index)) candidates.delete(id);
+  }
   const ranked: RankedResult[] =
     ranker === 'bm25'
-      ? scoreBM25(index, queryTerms, topK, bm25Opts)
-      : scoreTFIDF(index, queryTerms, topK);
+      ? scoreBM25(index, queryTerms, topK, bm25Opts, candidates)
+      : scoreTFIDF(index, queryTerms, topK, candidates);
 
   // Phrase filter: for phrase clauses, verify positional adjacency
   const filteredRanked = ranked.filter((r) => {
     return satisfiesPhrase(clause, r.docId, index);
   });
 
-  const total = filteredRanked.length;
+  const total = candidates.size;
   const pageSlice = filteredRanked.slice((page - 1) * limit, page * limit);
 
   const results: SearchResultItem[] = pageSlice.map((r) => {
@@ -113,7 +121,7 @@ function satisfiesPhrase(
 ): boolean {
   switch (clause.type) {
     case 'term':
-      return true; // already filtered by ranker
+      return getPostings(index, clause.value).some((p) => p.docId === docId);
     case 'phrase': {
       // Build position map for this doc using positional postings
       const docPositions = new Map<string, number[]>();

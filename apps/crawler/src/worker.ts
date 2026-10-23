@@ -107,6 +107,7 @@ export class CrawlerWorker {
     } finally {
       clearInterval(reaperTimer);
       this.running = false;
+      if (this.stopRequested) await this.frontier.reset();
       await this.closeResources();
     }
 
@@ -135,7 +136,9 @@ export class CrawlerWorker {
     this.running = false;
     this.paused = false;
 
-    this.stopPromise = this.closeResources();
+    // start() owns resource closure after in-flight processing finishes.
+    // Closing Redis/Mongo here races the workers' finally/acknowledgement.
+    this.stopPromise = Promise.resolve();
 
     try {
       await this.stopPromise;
@@ -219,6 +222,9 @@ export class CrawlerWorker {
 
       this.idleSince = null;
       this.activeCount++;
+      const leaseTimer = setInterval(() => {
+        this.frontier.renew(workerId, next.url).catch((err: unknown) => logger.warn({ err }, 'Lease renewal failed'));
+      }, 10_000);
 
       try {
         await this.processUrl(next.url);
@@ -237,6 +243,7 @@ export class CrawlerWorker {
           );
         }
       } finally {
+        clearInterval(leaseTimer);
         try {
           await this.frontier.complete(workerId, next.url, next.domain);
         } catch (completeErr) {
