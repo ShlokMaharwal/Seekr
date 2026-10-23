@@ -1,6 +1,6 @@
 # Relevance evaluation
 
-Measured 2026-10-23T18:46:23.888Z from commit 5e429544b44022e25617029143ac5555ddafc023 (plus any working changes).
+Measured 2026-10-23T19:52:00.486Z from commit c84d5c10c5de71ed88c0a1910f2278ca1982e5fc (plus any working changes).
 
 Corpus: 29 real articles; 20 manually authored judgments. SHA-256: 1a61e708088d5b0bd382a4637ab134e932e9364eb78b4691175b31e7223702f5.
 

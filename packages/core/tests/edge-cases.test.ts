@@ -13,6 +13,19 @@ import {
 } from '../src/index.js';
 
 describe('field and lifecycle edge cases', () => {
+  it('keeps punctuation-separated query terms and stable score ties across snapshots', () => {
+    const index = createIndex();
+    addDocument(index, 'z', 'binary tree', '', 'z');
+    addDocument(index, 'a', 'binary tree', '', 'a');
+    const bigrams = buildBigramIndex(index.postings.keys());
+    const before = search(index, 'binary-tree', new Map(), bigrams);
+    expect(before.results.map((r) => r.docId)).toEqual(['a', 'z']);
+    expect(
+      search(decodeIndex(encodeIndex(index)), 'binary-tree', new Map(), bigrams).results.map(
+        (r) => r.docId,
+      ),
+    ).toEqual(['a', 'z']);
+  });
   it('matches title phrases without matching across title and body boundaries', () => {
     const index = createIndex();
     addDocument(index, 'title', 'unrelated content', 'Binary tree', 'u');

@@ -19,6 +19,7 @@ import { SeekrMark, Failure } from "@/frontend/shell";
 import { Highlight, SearchBox } from "@/frontend/search-box";
 import { searchOptions, type Ranker, type SearchResponse } from "@/frontend/api";
 import { PAGE_SIZE } from "@/frontend/config";
+import { SeedNotice } from "@/frontend/seed-notice";
 type SearchState = { q: string; page: number; ranker: Ranker; compare: boolean };
 export const Route = createFileRoute("/")({
   validateSearch: (s: Record<string, unknown>): SearchState => ({
@@ -86,6 +87,7 @@ function SearchPage() {
             Find your signal.
           </p>
           <SearchBox onSearch={search} />
+          <SeedNotice />
           <div className="search-help">
             <span>
               Looking for an exact match? Try <code>"binary tree"</code>
@@ -135,18 +137,16 @@ function SearchPage() {
           </div>
           <div className="index-snapshot">
             <div>
-              <strong>24.8k</strong>
-              <small>pages indexed</small>
+              <strong>Local</strong>
+              <small>Your own corpus</small>
             </div>
             <div>
-              <strong>186k</strong>
-              <small>unique terms</small>
+              <strong>BM25</strong>
+              <small>Default ranking</small>
             </div>
             <div>
-              <strong>
-                12<span className="text-muted-foreground text-xs"> ms</span>
-              </strong>
-              <small>average response</small>
+              <strong>Open</strong>
+              <small>Inspect every algorithm</small>
             </div>
           </div>
         </section>
@@ -215,6 +215,7 @@ function Results({
           <Search size={30} />
           <h2>No results for “{state.q}”</h2>
           <p>Try a different term or a broader query.</p>
+          <SeedNotice />
           <Button variant="outline" onClick={() => update({ q: "binary tree", page: 1 })}>
             Explore binary tree <ArrowRight />
           </Button>

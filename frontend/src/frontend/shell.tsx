@@ -2,6 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { ArrowUpRight, Moon, Sun, Search, LayoutDashboard, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { USE_MOCK } from "./config";
 export function SeekrMark({ large = false }: { large?: boolean }) {
   return (
     <span className={large ? "brand brand-large" : "brand"}>
@@ -13,7 +14,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [dark, setDark] = useState(true);
   const location = useLocation();
   useEffect(() => {
-    const saved = localStorage.getItem("seekr-theme");
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem("seekr-theme");
+    } catch {
+      // The theme still works for this tab when browser storage is blocked.
+    }
     setDark(saved !== "light");
     document.documentElement.classList.toggle("dark", saved !== "light");
   }, []);
@@ -21,7 +27,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     const next = !dark;
     setDark(next);
     document.documentElement.classList.toggle("dark", next);
-    localStorage.setItem("seekr-theme", next ? "dark" : "light");
+    try {
+      localStorage.setItem("seekr-theme", next ? "dark" : "light");
+    } catch {
+      // Keep the current in-memory preference.
+    }
   }
   return (
     <div className="app-shell">
@@ -53,7 +63,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="header-right">
           <span className="index-status">
             <i />
-            Index online
+            Local workspace
           </span>
           <span className="header-divider" />
           <Button
@@ -67,7 +77,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Button>
         </div>
       </header>
-      <main>{children}</main>
+      <main>
+        {USE_MOCK && (
+          <p role="status" className="search-help">
+            Demo fixtures — all displayed mock data is illustrative.
+          </p>
+        )}
+        {children}
+      </main>
       <footer className="app-footer">
         <span>
           Seekr <span className="footer-muted">/</span> A little more signal. A little less noise.
@@ -75,10 +92,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div>
           <span className="footer-status">
             <i />
-            All systems operational
+            Local portfolio project
           </span>
           <span className="footer-muted">
-            v0.1.0 <ArrowUpRight size={12} />
+            v1.0.0 <ArrowUpRight size={12} />
           </span>
         </div>
       </footer>

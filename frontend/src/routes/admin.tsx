@@ -1,5 +1,6 @@
 import { createFileRoute, ClientOnly } from "@tanstack/react-router";
-import { Suspense, useState } from "react";
+import { Component, Suspense, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Dashboard } from "@/frontend/dashboard";
 import { Failure } from "@/frontend/shell";
 import { getAdminToken, setAdminToken } from "@/frontend/api";
@@ -11,10 +12,16 @@ export const Route = createFileRoute("/admin")({
       <AdminGate />
     </ClientOnly>
   ),
-  errorComponent: ({ error, reset }) => <Failure message={error.message} retry={reset} />,
+  errorComponent: ({ error, reset }) => (
+    <Failure
+      message={error instanceof Error ? error.message : "Dashboard unavailable."}
+      retry={reset}
+    />
+  ),
 });
 
-function AdminGate() {
+export function AdminGate() {
+  const client = useQueryClient();
   const [token, setToken] = useState(getAdminToken);
   const [ready, setReady] = useState(false);
   return (
@@ -24,6 +31,7 @@ function AdminGate() {
         onSubmit={(e) => {
           e.preventDefault();
           setAdminToken(token);
+          for (const key of ["stats", "feed", "metrics"]) client.removeQueries({ queryKey: [key] });
           setReady(true);
         }}
       >
@@ -46,10 +54,28 @@ function AdminGate() {
         </p>
       </form>
       {ready && (
-        <Suspense fallback={<p>Loading index statistics…</p>}>
-          <Dashboard />
-        </Suspense>
+        <DashboardBoundary>
+          <Suspense fallback={<p>Loading index statistics…</p>}>
+            <Dashboard />
+          </Suspense>
+        </DashboardBoundary>
       )}
     </>
   );
+}
+
+class DashboardBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  override state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  override render() {
+    return this.state.error ? (
+      <p role="alert" className="crawl-error">
+        {this.state.error.message} Update the token above and connect again.
+      </p>
+    ) : (
+      this.props.children
+    );
+  }
 }

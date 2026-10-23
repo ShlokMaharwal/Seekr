@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ClientOnly } from "@tanstack/react-router";
 import {
@@ -29,15 +29,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  api,
-  feedOptions,
-  getAdminToken,
-  metricsOptions,
-  setAdminToken,
-  statsOptions,
-  type CrawlSettings,
-} from "./api";
+import { api, feedOptions, metricsOptions, statsOptions, type CrawlSettings } from "./api";
 export function validateCrawl(settings: CrawlSettings): string | null {
   if (!settings.seeds.length) return "Add at least one seed URL.";
   if (
@@ -72,14 +64,6 @@ export function Dashboard() {
   const [maxPages, setMaxPages] = useState(1000);
   const [delayMs, setDelayMs] = useState(1000);
   const [workers, setWorkers] = useState(4);
-  const [token, setToken] = useState("");
-  useEffect(() => {
-    setToken(getAdminToken());
-  }, []);
-  const saveToken = (v: string) => {
-    setToken(v);
-    setAdminToken(v);
-  };
   async function control(action: "start" | "pause" | "stop") {
     const settings = {
       seeds: seeds
@@ -116,10 +100,10 @@ export function Dashboard() {
   }
   const statItems = [
     {
-      label: "Documents indexed",
+      label: "Documents stored",
       value: stats.docs.toLocaleString(),
       icon: FileText,
-      foot: "Across the independent index",
+      foot: "Stored documents in the corpus",
     },
     {
       label: "Unique terms",
@@ -132,7 +116,7 @@ export function Dashboard() {
       value: stats.indexSizeMb.toFixed(1),
       unit: "MB",
       icon: Database,
-      foot: "Compressed & ready to search",
+      foot: "Approximate in-memory estimate",
     },
     {
       label: "Crawl rate",
@@ -152,29 +136,6 @@ export function Dashboard() {
           <p>A pulse on your index, from the first crawl to the next query.</p>
         </div>
         <div className="header-right">
-          <label
-            className="admin-token-label"
-            htmlFor="admin-token"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              fontSize: 11,
-              color: "var(--muted-foreground)",
-            }}
-          >
-            <span>Admin token</span>
-            <input
-              className="field"
-              id="admin-token"
-              type="password"
-              placeholder="Enter token…"
-              value={token}
-              onChange={(e) => saveToken(e.target.value)}
-              autoComplete="off"
-              style={{ width: 160, height: 30, fontSize: 11 }}
-            />
-          </label>
           <span className="live-label">
             <i />
             Live · every 2s
@@ -325,7 +286,7 @@ export function Dashboard() {
       <div className="chart-grid">
         <section>
           <h2 className="section-heading">
-            Pages crawled<small>Last 4 hours</small>
+            Pages crawled<small>Last hour</small>
           </h2>
           <div className="chart-container">
             <ClientOnly fallback={<div className="skeleton-line" />}>
@@ -431,7 +392,7 @@ export function Dashboard() {
       <div className="health-grid">
         <section>
           <h2 className="section-heading">
-            Top searched queries<small>Last 24 hours</small>
+            Top searched queries<small>Cumulative counts</small>
           </h2>
           <div className="query-list">
             {metrics.topQueries.map((item, i) => (

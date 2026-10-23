@@ -38,6 +38,7 @@ export class CrawlerWorker {
   private stopRequested = false;
 
   private crawledCount = 0;
+  private reservedCount = 0;
   private activeCount = 0;
   private idleSince: number | null = null;
 
@@ -76,6 +77,7 @@ export class CrawlerWorker {
     this.running = true;
     this.stopRequested = false;
     this.crawledCount = 0;
+    this.reservedCount = 0;
     this.activeCount = 0;
     this.idleSince = null;
 
@@ -108,11 +110,13 @@ export class CrawlerWorker {
   }
 
   pause(): void {
+    if (this.paused) return;
     this.paused = true;
     logger.info('Crawler paused');
   }
 
   resume(): void {
+    if (!this.paused) return;
     this.paused = false;
     logger.info('Crawler resumed');
   }
@@ -159,16 +163,19 @@ export class CrawlerWorker {
         continue;
       }
 
-      if (this.crawledCount >= this.config.maxPages) {
-        this.running = false;
+      if (this.reservedCount >= this.config.maxPages) {
         break;
       }
+      // Reserve before awaiting Redis so concurrent loops cannot overshoot
+      // the configured page-attempt budget.
+      this.reservedCount++;
 
       let next: Awaited<ReturnType<UrlFrontier['dequeue']>>;
 
       try {
         next = await this.frontier.dequeue(workerId);
       } catch (err) {
+        this.reservedCount--;
         if (!this.running || this.stopRequested) {
           break;
         }
@@ -184,6 +191,7 @@ export class CrawlerWorker {
       }
 
       if (next === null) {
+        this.reservedCount--;
         // Only finish after the queue remains empty and all workers
         // have been idle for the configured grace period.
         if (this.activeCount === 0) {

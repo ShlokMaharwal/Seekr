@@ -23,4 +23,14 @@ describe("untrusted content", () => {
     expect(getAdminToken()).toBe("temporary-test-token");
     setAdminToken("");
   });
+  it("uses the new token when storage reads succeed but writes fail", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockReturnValue("old-token");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota exceeded");
+    });
+    setAdminToken("new-token");
+    expect(getAdminToken()).toBe("new-token");
+    setAdminToken("");
+    expect(getAdminToken()).toBe("");
+  });
 });

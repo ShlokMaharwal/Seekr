@@ -9,6 +9,7 @@ import { CrawlerWorker } from './worker.js';
 import { UrlFrontier } from './frontier.js';
 import { logger } from './logger.js';
 import { parseCrawlConfig } from './config.js';
+import { hostname } from 'node:os';
 
 const K_CONTROL = 'crawl:control';
 const K_CONFIG = 'crawl:config';
@@ -23,6 +24,11 @@ async function main(): Promise<void> {
   });
 
   logger.info({ redisUrl }, 'Crawler entrypoint waiting for start signal');
+  const heartbeat = setInterval(() => {
+    redis
+      .set(`crawler:heartbeat:${hostname()}`, '1', 'EX', 10)
+      .catch((err: unknown) => logger.warn({ err }, 'Crawler heartbeat failed'));
+  }, 2000);
 
   try {
     while (true) {
@@ -73,7 +79,10 @@ async function main(): Promise<void> {
         concurrency: config.workers,
         delayMs: config.delayMs,
         maxPages: config.maxPages,
-        allowedPrefixes: config.seeds,
+        allowedPrefixes: config.seeds.map((seed) => {
+          const url = new URL(seed);
+          return url.pathname.endsWith('/') ? url.href : new URL('.', url).href;
+        }),
       });
 
       const watcher = watchControl(redis, worker);
@@ -92,6 +101,7 @@ async function main(): Promise<void> {
       logger.info('Crawl cycle finished');
     }
   } finally {
+    clearInterval(heartbeat);
     await redis.quit();
   }
 }
@@ -104,6 +114,7 @@ async function watchControl(redis: Redis, worker: CrawlerWorker): Promise<void> 
       worker.pause();
     } else if (cmd === 'resume') {
       worker.resume();
+      await redis.set(K_CONTROL, 'running');
     } else if (cmd === 'stop') {
       await worker.stop();
       return;

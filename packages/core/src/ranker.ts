@@ -154,7 +154,7 @@ export function scoreBM25F(
 function collectTopK(scores: Map<string, number>, k: number): RankedResult[] {
   const heap = new TopKHeap<RankedResult>(
     k,
-    (a, b) => a.score < b.score, // min-heap by score
+    (a, b) => a.score < b.score || (a.score === b.score && a.docId > b.docId), // deterministic ties across snapshots
   );
 
   for (const [docId, score] of scores) {

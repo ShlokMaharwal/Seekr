@@ -3,6 +3,16 @@ import { UrlFrontier, processingKey } from '../src/frontier.js';
 import type { Redis } from 'ioredis';
 
 describe('UrlFrontier Reliable Queue', () => {
+  it('retains a stale lease when Redis cannot requeue it', async () => {
+    const redis = {
+      scan: vi.fn().mockResolvedValue(['0', ['frontier:processing:crashed']]),
+      zrangebyscore: vi.fn().mockResolvedValue(['https://example.com/page']),
+      eval: vi.fn().mockRejectedValue(new Error('Redis unavailable')),
+      zrem: vi.fn(),
+    };
+    expect(await new UrlFrontier({ redis: redis as unknown as Redis }).reapStale()).toBe(0);
+    expect(redis.zrem).not.toHaveBeenCalled();
+  });
   it('formats worker processing key correctly', () => {
     expect(processingKey('worker-1')).toBe('frontier:processing:worker-1');
   });

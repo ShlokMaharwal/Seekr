@@ -82,14 +82,15 @@ const wait = () => new Promise((resolve) => setTimeout(resolve, 220));
 // ---------------------------------------------------------------------------
 
 const ADMIN_TOKEN_KEY = "seekr_admin_token";
-let memoryAdminToken = "";
+let memoryAdminToken: string | undefined;
 
 /** Get the stored admin token, or empty string if not set or storage is blocked. */
 export function getAdminToken(): string {
+  if (memoryAdminToken !== undefined) return memoryAdminToken;
   try {
-    return localStorage.getItem(ADMIN_TOKEN_KEY) ?? memoryAdminToken;
+    return localStorage.getItem(ADMIN_TOKEN_KEY) ?? "";
   } catch {
-    return memoryAdminToken;
+    return "";
   }
 }
 
@@ -138,7 +139,7 @@ async function adminRequest<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: body !== undefined ? "POST" : "GET",
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
@@ -262,17 +263,17 @@ export const searchOptions = (q: string, page: number, ranker: Ranker) =>
   });
 export const statsOptions = queryOptions({
   queryKey: ["stats"],
-  queryFn: api.stats,
+  queryFn: () => api.stats(),
   refetchInterval: 2000,
 });
 export const feedOptions = queryOptions({
   queryKey: ["feed"],
-  queryFn: api.feed,
+  queryFn: () => api.feed(),
   refetchInterval: 2000,
 });
 export const metricsOptions = queryOptions({
   queryKey: ["metrics"],
-  queryFn: api.metrics,
+  queryFn: () => api.metrics(),
   refetchInterval: 2000,
 });
 export const docOptions = (id: string) =>

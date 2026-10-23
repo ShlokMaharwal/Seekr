@@ -49,7 +49,8 @@ cp frontend/.env.example frontend/.env
 Set `ADMIN_TOKEN` in `.env` to a local token of your choice. Then:
 
 ```bash
-docker compose up --build -d
+docker compose up --build -d --wait
+npm run seed -- --max-pages 1000
 npm run dev:frontend
 ```
 
@@ -76,7 +77,7 @@ npm run dev:crawler
 npm run dev:frontend
 ```
 
-Export the root environment variables for native API/crawler processes. Set
+The root development scripts load `.env` automatically. Set
 `VITE_API_BASE_URL=http://localhost:4000` in `frontend/.env` for native API
 development. Docker maps **host 4001 → container 4000**; the native API defaults
 to **4000**. See [local setup](docs/LOCAL_DEVELOPMENT.md).
@@ -93,6 +94,17 @@ Connect the dashboard with your token, crawl a small corpus, then demonstrate
 ranker comparison, and an indexed document. Pause and resume from the dashboard.
 
 **Demo GIF:** add your local screen recording here.
+
+`npm run seed` targets Docker port 4001, reads `ADMIN_TOKEN` from `.env`, and
+starts a bounded Wikipedia CS/Node.js crawl. Use `npm run seed -- --local` for
+the native API on port 4000, `--url` for an explicit endpoint, and `--watch` for
+progress output. The legacy `node scripts/seed.js 1000 http://localhost:4001`
+form remains supported. `npm run seed -- --help` lists the options.
+
+`npm start` starts the Docker backend; `npm stop` shuts it down while retaining
+volumes. `npm run clean` removes only verified generated outputs inside this
+checkout, preserving dependencies, downloaded data, and database volumes. Preview
+its targets with `npm run clean -- --dry-run`.
 
 ## Architecture
 
@@ -217,6 +229,7 @@ npm test
 npm run test:coverage
 npm run build:frontend
 npm run test:frontend
+npm run typecheck:frontend
 npm run lint
 npm run format:check
 npm run test:e2e          # requires a working Docker engine
@@ -228,8 +241,8 @@ npm run bench:stack       # isolated Redis/Mongo + generated HTTP fixture
 npm run bench             # writes docs/BENCHMARKS.md
 ```
 
-Core coverage measured **98.26% lines, 94.26% statements, 97.79% functions,
-83.33% branches**. CI checks Node 22 builds, lint, format, backend/frontend tests,
+Core coverage measured **98.27% lines, 94.28% statements, 97.81% functions,
+83.50% branches**. CI checks Node 22 builds, strict frontend types, lint, format, backend/frontend tests,
 coverage thresholds, a real Redis/Mongo fixture E2E run, and fixture benchmarks.
 
 All recorded throughput, p50/p95/p99, worker concurrency, memory, disk-size, and

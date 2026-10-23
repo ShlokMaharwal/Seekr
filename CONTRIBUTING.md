@@ -10,6 +10,7 @@ npm test
 npm run test:coverage
 npm run build:frontend
 npm run test:frontend
+npm run typecheck:frontend
 npm run lint
 npm run format:check
 npm run test:e2e

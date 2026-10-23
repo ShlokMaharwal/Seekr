@@ -125,6 +125,8 @@ function segmentToClause(segment: string): QueryClause | null {
   // Plain term
   const tokens = tokenize(segment);
   if (tokens.length === 0) return null;
+  if (tokens.length > 1)
+    return { type: 'and', clauses: tokens.map((token) => ({ type: 'term', value: token.term })) };
   return { type: 'term', value: tokens[0]!.term };
 }
 

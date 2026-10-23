@@ -199,16 +199,23 @@ export class UrlFrontier {
       for (const pKey of keys) {
         const staleMembers = await this.redis.zrangebyscore(pKey, '-inf', cutoff);
         for (const raw of staleMembers) {
+          let url: string;
+          let domain: string;
           try {
             const legacy: unknown = raw.startsWith('{') ? JSON.parse(raw) : null;
-            const url =
+            url =
               legacy &&
               typeof legacy === 'object' &&
               'url' in legacy &&
               typeof legacy.url === 'string'
                 ? legacy.url
                 : raw;
-            const domain = new URL(url).hostname;
+            domain = new URL(url).hostname;
+          } catch {
+            await this.redis.zrem(pKey, raw);
+            continue;
+          }
+          try {
             // Claim and requeue in ONE operation: competing reapers must not
             // insert the same stale URL twice, or race a renewed lease.
             const claimed = await this.redis.eval(
@@ -231,8 +238,10 @@ export class UrlFrontier {
               domain,
             );
             if (claimed === 1) reapedCount++;
-          } catch {
-            await this.redis.zrem(pKey, raw);
+          } catch (error) {
+            // Redis may recover on the next pass. Keep the lease so work is
+            // not silently discarded when the atomic requeue fails.
+            logger.warn({ error, url }, 'Could not requeue stale URL; retaining lease');
           }
         }
       }

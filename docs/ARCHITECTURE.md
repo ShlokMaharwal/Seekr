@@ -93,6 +93,8 @@ transport remains at least once.
 
 The health endpoint reports process liveness, not deep dependency readiness.
 Redis and MongoDB have Compose healthchecks; API startup waits for them.
+The crawler publishes a short-lived Redis heartbeat, and its Compose healthcheck
+tests that heartbeat. API, Redis, and MongoDB host ports bind to loopback.
 
 ## Verification and scope
 

@@ -11,9 +11,9 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
-    "dev:api": "npm run dev -w apps/api",
-    "dev:crawler": "npm run dev -w apps/crawler",
+    "test": "npm run test --workspaces --if-present && node --test scripts/seed.test.mjs",
+    "dev:api": "node --watch --env-file-if-exists=.env --import tsx apps/api/src/main.ts",
+    "dev:crawler": "node --watch --env-file-if-exists=.env --import tsx apps/crawler/src/main.ts",
     "dev:frontend": "npm run dev --prefix frontend",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",
@@ -21,11 +21,16 @@
     "test:coverage": "npm run test:coverage -w packages/core",
     "test:frontend": "npm test --prefix frontend -- --maxWorkers=1",
     "build:frontend": "npm run build --prefix frontend",
+    "typecheck:frontend": "npm run typecheck --prefix frontend",
     "test:e2e": "node scripts/e2e.mjs",
-    "bench": "node --expose-gc bench/run.mjs",
+    "bench": "node --env-file-if-exists=.env --expose-gc bench/run.mjs",
     "bench:micro": "node bench/micro.mjs",
     "bench:eval": "node bench/eval/run.mjs",
-    "bench:stack": "node scripts/bench-stack.mjs"
+    "bench:stack": "node scripts/bench-stack.mjs",
+    "seed": "node scripts/seed.mjs",
+    "clean": "node scripts/clean.mjs",
+    "start": "docker compose up --build -d --wait",
+    "stop": "docker compose down"
   },
   "devDependencies": {
     "vitest": "^4.1.12",
