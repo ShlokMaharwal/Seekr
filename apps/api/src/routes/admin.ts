@@ -27,7 +27,7 @@ const K_FEED    = 'feed:events';
 const K_CRAWL_RATE = 'stats:crawlRate';
 
 const StartSchema = z.object({
-  seeds: z.array(z.string().url()).min(1),
+  seeds: z.array(z.string().url().max(2048).refine(s => ['http:', 'https:'].includes(new URL(s).protocol))).min(1).max(100),
   maxPages: z.number().int().min(1).max(1_000_000).default(10_000),
   delayMs: z.number().int().min(0).max(60_000).default(500),
   workers: z.number().int().min(1).max(10).default(1),

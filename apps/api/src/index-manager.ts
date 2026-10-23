@@ -13,6 +13,7 @@
  */
 
 import { Redis } from 'ioredis';
+import { z } from 'zod';
 import {
   type InvertedIndex,
   type BigramIndex,
@@ -33,6 +34,9 @@ const INDEXER_STREAM = 'stream:new-docs';
 const SNAPSHOT_INTERVAL_MS = 60_000; // 60 seconds
 const CONSUMER_GROUP = 'indexer-group';
 const CONSUMER_NAME = `indexer-${process.pid}`;
+const StreamMessages = z.array(z.tuple([z.string(), z.array(z.string())]));
+const StreamRead = z.array(z.tuple([z.string(), StreamMessages])).nullable();
+const StreamClaim = z.tuple([z.string(), StreamMessages]).rest(z.unknown());
 
 export class IndexManager {
   index: InvertedIndex = createIndex();
@@ -162,7 +166,7 @@ export class IndexManager {
   async recoverPendingMessages(): Promise<void> {
     try {
       // 1. Process pending messages assigned to this consumer
-      const pendingResults = (await this.redis.xreadgroup(
+      const pendingResults = StreamRead.parse(await this.redis.xreadgroup(
         'GROUP',
         CONSUMER_GROUP,
         CONSUMER_NAME,
@@ -171,7 +175,7 @@ export class IndexManager {
         'STREAMS',
         INDEXER_STREAM,
         '0',
-      )) as Array<[string, Array<[string, string[]]>]> | null;
+      ));
 
       if (pendingResults) {
         for (const [, messages] of pendingResults) {
@@ -185,7 +189,7 @@ export class IndexManager {
       try {
         let cursor = '0-0';
         do {
-        const claimResult = await this.redis.xautoclaim(
+        const claimResult = StreamClaim.parse(await this.redis.xautoclaim(
           INDEXER_STREAM,
           CONSUMER_GROUP,
           CONSUMER_NAME,
@@ -193,7 +197,7 @@ export class IndexManager {
           cursor,
           'COUNT',
           100,
-        ) as [string, Array<[string, string[]]>, string[]];
+        ));
         cursor = claimResult[0];
 
         if (claimResult && claimResult[1] && claimResult[1].length > 0) {
@@ -220,7 +224,7 @@ export class IndexManager {
           nextRecovery = Date.now() + 30_000;
         }
         // Read up to 20 messages, block for 1 second if stream is empty
-        const results = (await this.redis.xreadgroup(
+        const results = StreamRead.parse(await this.redis.xreadgroup(
           'GROUP',
           CONSUMER_GROUP,
           CONSUMER_NAME,
@@ -231,7 +235,7 @@ export class IndexManager {
           'STREAMS',
           INDEXER_STREAM,
           '>',
-        )) as Array<[string, Array<[string, string[]]>]> | null;
+        ));
 
         if (!results) continue;
 

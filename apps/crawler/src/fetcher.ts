@@ -1,195 +1,98 @@
-/**
- * HTML Fetcher
- *
- * Fetches a URL with:
- *   - SSRF protection (blocks private, loopback, and link-local IPs)
- *   - Protocol validation (only http/https)
- *   - Configurable timeout (default 10s)
- *   - Automatic redirect following (max 5 hops, handled by undici)
- *   - Exponential backoff retry (max 3 attempts)
- *   - Only processes HTML responses (skips binary, CSS, JS)
- */
-
-import { request } from 'undici';
+import { Agent, request } from 'undici';
 import { lookup } from 'node:dns/promises';
-import { logger } from './logger.js';
+import { BlockList, isIP, type LookupFunction } from 'node:net';
 
-export interface FetchResult {
-  url: string;       // Final URL after redirects
-  html: string;
-  statusCode: number;
+export interface FetchResult { url: string; html: string; statusCode: number }
+const blocked = new BlockList();
+for (const [network, prefix] of [ ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10],
+  ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16],
+  ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4] ] as const) blocked.addSubnet(network, prefix, 'ipv4');
+blocked.addAddress('::', 'ipv6'); blocked.addAddress('::1', 'ipv6');
+blocked.addSubnet('fc00::', 7, 'ipv6'); blocked.addSubnet('fe80::', 10, 'ipv6');
+blocked.addSubnet('ff00::', 8, 'ipv6');
+export const isPrivateIPv4 = (ip: string): boolean => isIP(ip) === 4 && blocked.check(ip, 'ipv4');
+export const isPrivateIPv6 = (ip: string): boolean => isIP(ip) === 6 && blocked.check(ip, 'ipv6');
+function permanent(message: string): Error & { permanent: true } {
+  return Object.assign(new Error(message), { permanent: true as const });
+}
+function allowFixture(url: URL): boolean {
+  // This narrow exception is available only in the explicitly configured E2E
+  // test process. Redirects to a different private origin remain blocked.
+  return process.env['NODE_ENV'] === 'test' && url.origin === process.env['CRAWLER_TEST_ORIGIN'];
+}
+function hostname(url: URL): string { return url.hostname.replace(/^\[|\]$/g, ''); }
+async function addresses(host: string, allowPrivate: boolean) {
+  const resolved = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookup(host, { all: true });
+  if (!resolved.length || (!allowPrivate && resolved.some(r => isPrivateIPv4(r.address) || isPrivateIPv6(r.address)))) {
+    throw permanent(`Blocked URL: ${host} resolves to a non-public address`);
+  }
+  return resolved;
+}
+export async function assertSafeUrl(raw: string): Promise<void> {
+  const url = new URL(raw);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+    throw permanent('Blocked URL: only HTTP(S) URLs without credentials are allowed');
+  }
+  await addresses(hostname(url), allowFixture(url));
 }
 
-const MAX_RETRIES = 3;
-const TIMEOUT_MS = 10_000;
-const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MB
-
-// ---------------------------------------------------------------------------
-// SSRF Protection: block private, loopback, and link-local IP ranges
-// ---------------------------------------------------------------------------
-
-/**
- * Check whether an IPv4 address falls in a private, loopback, or link-local range.
- *
- * Blocked ranges:
- *   - 10.0.0.0/8     (private)
- *   - 172.16.0.0/12  (private)
- *   - 192.168.0.0/16 (private)
- *   - 127.0.0.0/8    (loopback)
- *   - 169.254.0.0/16 (link-local)
- *   - 0.0.0.0/8      (current network)
- */
-export function isPrivateIPv4(ip: string): boolean {
-  const parts = ip.split('.').map(Number);
-  if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) {
-    return false; // Not a valid IPv4 — let caller decide
-  }
-  const [a, b] = parts as [number, number, number, number];
-
-  if (a === 10) return true;                                    // 10.0.0.0/8
-  if (a === 172 && b >= 16 && b <= 31) return true;             // 172.16.0.0/12
-  if (a === 192 && b === 168) return true;                      // 192.168.0.0/16
-  if (a === 127) return true;                                   // 127.0.0.0/8
-  if (a === 169 && b === 254) return true;                      // 169.254.0.0/16
-  if (a === 0) return true;                                     // 0.0.0.0/8
-  return false;
-}
-
-/**
- * Check whether an IPv6 address is loopback (::1) or link-local (fe80::/10).
- */
-export function isPrivateIPv6(ip: string): boolean {
-  const normalized = ip.toLowerCase();
-  if (normalized === '::1') return true;                        // loopback
-  if (normalized.startsWith('fe80:')) return true;              // link-local
-  if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true; // unique local
-  // IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1)
-  const v4Match = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (v4Match && v4Match[1]) return isPrivateIPv4(v4Match[1]);
-  return false;
-}
-
-/**
- * Validate a URL is safe to fetch:
- *   1. Only http/https protocols are allowed
- *   2. Resolved IP must not be private, loopback, or link-local
- *
- * Throws an error with { permanent: true } if blocked.
- */
-export async function assertSafeUrl(url: string): Promise<void> {
-  const parsed = new URL(url);
-
-  // Protocol check
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw Object.assign(
-      new Error(`Blocked URL: unsupported protocol ${parsed.protocol}`),
-      { permanent: true },
-    );
-  }
-
-  // DNS resolution check
-  const hostname = parsed.hostname;
-
-  // If the hostname is already an IP literal, check directly
-  if (isPrivateIPv4(hostname) || isPrivateIPv6(hostname)) {
-    throw Object.assign(
-      new Error(`Blocked URL: private/loopback IP ${hostname}`),
-      { permanent: true },
-    );
-  }
-
-  // Resolve the hostname and check all returned addresses
-  try {
-    const results = await lookup(hostname, { all: true });
-    for (const result of results) {
-      const blocked =
-        result.family === 4
-          ? isPrivateIPv4(result.address)
-          : isPrivateIPv6(result.address);
-      if (blocked) {
-        throw Object.assign(
-          new Error(`Blocked URL: ${hostname} resolves to private/loopback IP ${result.address}`),
-          { permanent: true },
-        );
-      }
-    }
-  } catch (err) {
-    // Re-throw SSRF blocks; swallow DNS-not-found (let undici handle it)
-    if ((err as { permanent?: boolean }).permanent) throw err;
-    logger.debug({ hostname, err }, 'DNS lookup warning (will let undici handle)');
-  }
-}
-
-/**
- * Fetch a URL and return its HTML content.
- * Throws on non-recoverable errors (4xx, non-HTML content-type, SSRF, etc.).
- */
-export async function fetchUrl(url: string): Promise<FetchResult> {
-  // SSRF check before any network request
-  await assertSafeUrl(url);
-
+export async function fetchUrl(raw: string, requireHtml = true): Promise<FetchResult> {
   let lastError: unknown;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const { body, statusCode, headers } = await request(url, {
-        method: 'GET',
-        maxRedirections: 5,
-        headersTimeout: TIMEOUT_MS,
-        bodyTimeout: TIMEOUT_MS,
-        headers: {
-          'User-Agent': 'SeekerBot/1.0',
-          'Accept': 'text/html,application/xhtml+xml',
-        },
-      });
-
-      const contentType = (headers['content-type'] ?? '') as string;
-
-      // Skip non-HTML responses immediately (no retry)
-      if (!contentType.includes('text/html') && !contentType.includes('application/xhtml')) {
-        await body.dump();
-        throw Object.assign(new Error('Non-HTML content-type'), { permanent: true });
+      let url = new URL(raw);
+      for (let hop = 0; hop <= 5; hop++) {
+        await assertSafeUrl(url.href);
+        // Validate the addresses actually handed to the socket, too. A separate
+        // preflight lookup alone leaves a DNS-rebinding window.
+        const safeLookup: LookupFunction = (host, options, callback) => {
+          addresses(host, allowFixture(url)).then(resolved => {
+            const chosen = resolved.find(r => !options.family || r.family === options.family) ?? resolved[0];
+            if (!chosen) { callback(new Error('No address'), '', 4); return; }
+            if (options.all) callback(null, resolved);
+            else callback(null, chosen.address, chosen.family);
+          }).catch((err: Error) => callback(err, '', 4));
+        };
+        const agent = new Agent({ connect: { lookup: safeLookup } });
+        try {
+          const { body, statusCode, headers } = await request(url.href, {
+            dispatcher: agent, maxRedirections: 0, headersTimeout: 10_000, bodyTimeout: 10_000,
+            signal: AbortSignal.timeout(15_000),
+            headers: { 'User-Agent': 'SeekrBot/1.0', Accept: requireHtml ? 'text/html,application/xhtml+xml' : 'text/plain' },
+          });
+          // Intentional cancellation of redirect/non-HTML bodies emits an
+          // AbortError. Consume that event; for-await still propagates read errors.
+          body.on('error', () => {});
+          if ([301, 302, 303, 307, 308].includes(statusCode)) {
+            body.destroy();
+            if (!headers.location || hop === 5) throw permanent('Redirect limit exceeded or missing Location');
+            url = new URL(String(headers.location), url);
+            continue; // Every redirect goes through URL and connection-time checks.
+          }
+          if (statusCode >= 400) {
+            body.destroy();
+            if (statusCode < 500) throw permanent(`HTTP ${statusCode}`);
+            throw new Error(`HTTP ${statusCode}`);
+          }
+          const contentType = String(headers['content-type'] ?? '').toLowerCase();
+          if (requireHtml && !contentType.includes('text/html') && !contentType.includes('application/xhtml')) {
+            body.destroy(); throw permanent('Non-HTML content-type');
+          }
+          const chunks: Buffer[] = []; let size = 0;
+          for await (const chunk of body) {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            size += buffer.length;
+            if (size > 5 * 1024 * 1024) { body.destroy(); throw permanent('Response exceeds 5 MiB'); }
+            chunks.push(buffer);
+          }
+          return { url: url.href, html: Buffer.concat(chunks).toString('utf8'), statusCode };
+        } finally { await agent.destroy(); }
       }
-
-      if (statusCode >= 400 && statusCode < 500) {
-        await body.dump();
-        throw Object.assign(new Error(`HTTP ${statusCode}`), { permanent: true });
-      }
-
-      if (statusCode >= 500) {
-        await body.dump();
-        throw new Error(`HTTP ${statusCode}`);
-      }
-
-      // Read body up to MAX_BODY_BYTES
-      const chunks: Buffer[] = [];
-      let totalBytes = 0;
-      for await (const chunk of body) {
-        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer);
-        totalBytes += buf.byteLength;
-        chunks.push(buf);
-        if (totalBytes > MAX_BODY_BYTES) break;
-      }
-
-      const html = Buffer.concat(chunks).toString('utf8');
-      return { url, html, statusCode };
     } catch (err) {
       lastError = err;
-      // Don't retry permanent errors
-      if ((err as { permanent?: boolean }).permanent) throw err;
-
-      if (attempt < MAX_RETRIES) {
-        const delay = 500 * Math.pow(2, attempt - 1); // 500ms, 1000ms, 2000ms
-        logger.warn({ url, attempt, delay }, 'Fetch failed, retrying');
-        await sleep(delay);
-      }
+      if (err instanceof Error && 'permanent' in err && err.permanent) throw err;
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * 2 ** attempt));
     }
   }
-
   throw lastError;
 }
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-

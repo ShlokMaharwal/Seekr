@@ -1,60 +1,32 @@
-/**
- * Robots.txt parser wrapper
- *
- * Fetches and caches robots.txt per domain (TTL: 1 hour).
- * Provides a single `isAllowed(url, userAgent)` method.
- */
+import robotsParserPackage from 'robots-parser';
+import { fetchUrl } from './fetcher.js';
 
-import { request } from 'undici';
-import robotsParserPkg from 'robots-parser';
-import { logger } from './logger.js';
-const robotsParser = (robotsParserPkg as any).default || robotsParserPkg;
-
-interface CachedRobots {
-  parser: any;
-  expiresAt: number;
+type Parser = { isAllowed(url: string, agent: string): boolean | undefined };
+function parseRobots(url: string, text: string): Parser {
+  const factory: unknown = robotsParserPackage;
+  if (typeof factory !== 'function') throw new Error('Invalid robots parser export');
+  const parser: unknown = factory(url, text);
+  if (!parser || typeof parser !== 'object' || !('isAllowed' in parser) || typeof parser.isAllowed !== 'function') {
+    throw new Error('Invalid robots parser result');
+  }
+  const isAllowed = parser.isAllowed;
+  return { isAllowed: (target, agent) => {
+    const result: unknown = isAllowed.call(parser, target, agent);
+    return typeof result === 'boolean' ? result : undefined;
+  } };
 }
-
-const ROBOTS_TTL_MS = 60 * 60 * 1000; // 1 hour
-const USER_AGENT = 'SeekerBot/1.0 (+https://github.com/seekr)';
-
 export class RobotsCache {
-  private readonly cache = new Map<string, CachedRobots>();
-
-  /**
-   * Returns true if `url` is allowed to be crawled for `userAgent`.
-   * On fetch failure, defaults to allowing the URL (fail-open).
-   */
-  async isAllowed(url: string, userAgent = USER_AGENT): Promise<boolean> {
-    const { hostname, protocol } = new URL(url);
-    const domain = `${protocol}//${hostname}`;
-
-    const cached = this.cache.get(domain);
-    if (cached !== undefined && cached.expiresAt > Date.now()) {
-      return cached.parser.isAllowed(url, userAgent) !== false;
+  private readonly cache = new Map<string, { parser: Parser; expiresAt: number }>();
+  async isAllowed(url: string, userAgent = 'SeekrBot'): Promise<boolean> {
+    const origin = new URL(url).origin;
+    let cached = this.cache.get(origin);
+    if (!cached || cached.expiresAt <= Date.now()) {
+      let text = '';
+      try { text = (await fetchUrl(`${origin}/robots.txt`, false)).html; }
+      catch { /* Missing/unavailable robots files use the documented allow policy. */ }
+      cached = { parser: parseRobots(`${origin}/robots.txt`, text), expiresAt: Date.now() + 3_600_000 };
+      this.cache.set(origin, cached);
     }
-
-    // Fetch and cache
-    try {
-      const robotsUrl = `${domain}/robots.txt`;
-      const { body, statusCode } = await request(robotsUrl, {
-        method: 'GET',
-        headersTimeout: 5000,
-        bodyTimeout: 5000,
-      });
-      if (statusCode === 200) {
-        const text = await body.text();
-        const parser = robotsParser(robotsUrl, text);
-        this.cache.set(domain, { parser, expiresAt: Date.now() + ROBOTS_TTL_MS });
-        return parser.isAllowed(url, userAgent) !== false;
-      }
-    } catch (err) {
-      logger.debug({ domain, err }, 'robots.txt fetch failed, defaulting to allow');
-    }
-
-    // On error or non-200, cache an allow-all parser
-    const parser = robotsParser(`${domain}/robots.txt`, '');
-    this.cache.set(domain, { parser, expiresAt: Date.now() + ROBOTS_TTL_MS });
-    return true;
+    return cached.parser.isAllowed(url, userAgent) !== false;
   }
 }

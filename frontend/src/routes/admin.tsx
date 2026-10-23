@@ -1,5 +1,25 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, ClientOnly } from '@tanstack/react-router';
+import { Suspense, useState } from 'react';
 import { Dashboard } from '@/frontend/dashboard';
 import { Failure } from '@/frontend/shell';
-import { statsOptions, feedOptions, metricsOptions } from '@/frontend/api';
-export const Route=createFileRoute('/admin')({loader:async({context})=>{await Promise.all([context.queryClient.ensureQueryData(statsOptions),context.queryClient.ensureQueryData(feedOptions),context.queryClient.ensureQueryData(metricsOptions)]);},head:()=>({meta:[{title:'Index dashboard — Seekr'},{name:'description',content:'Monitor the Seekr search index, control crawling, and inspect query performance.'},{property:'og:title',content:'Index dashboard — Seekr'},{property:'og:description',content:'Live crawler activity, index health, and search performance at a glance.'},{property:'og:type',content:'website'},{name:'twitter:card',content:'summary_large_image'}]}),component:Dashboard,errorComponent:({error,reset})=><Failure message={error instanceof Error?error.message:'This page could not be loaded.'} retry={reset}/>});
+import { getAdminToken, setAdminToken } from '@/frontend/api';
+
+export const Route = createFileRoute('/admin')({
+  head: () => ({ meta: [{ title: 'Index dashboard — Seekr' }] }),
+  component: () => <ClientOnly fallback={<p>Loading dashboard…</p>}><AdminGate/></ClientOnly>,
+  errorComponent: ({ error, reset }) => <Failure message={error.message} retry={reset}/>,
+});
+
+function AdminGate() {
+  const [token, setToken] = useState(getAdminToken);
+  const [ready, setReady] = useState(false);
+  return <>
+    <form className="crawl-form" onSubmit={e => { e.preventDefault(); setAdminToken(token); setReady(true); }}>
+      <label htmlFor="connect-admin-token">Admin token</label>
+      <input id="connect-admin-token" type="password" className="field" autoComplete="off" value={token} onChange={e => { setToken(e.target.value); setReady(false); }}/>
+      <button type="submit">Connect dashboard</button>
+      <p>Use ADMIN_TOKEN from your local backend configuration. Leave blank only for unprotected development mode.</p>
+    </form>
+    {ready && <Suspense fallback={<p>Loading index statistics…</p>}><Dashboard/></Suspense>}
+  </>;
+}

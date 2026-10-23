@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { IndexManager } from '../index-manager.js';
 
 const AutocompleteSchema = z.object({
-  q: z.string().min(1).max(100),
+  q: z.string().trim().min(1).max(100),
 });
 
 export function autocompleteRouter(indexManager: IndexManager): Router {

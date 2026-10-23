@@ -23,18 +23,20 @@ const wait = () => new Promise(resolve => setTimeout(resolve, 220));
 // ---------------------------------------------------------------------------
 
 const ADMIN_TOKEN_KEY = 'seekr_admin_token';
+let memoryAdminToken = '';
 
 /** Get the stored admin token, or empty string if not set or storage is blocked. */
 export function getAdminToken(): string {
   try {
-    return localStorage.getItem(ADMIN_TOKEN_KEY) ?? '';
+    return localStorage.getItem(ADMIN_TOKEN_KEY) ?? memoryAdminToken;
   } catch {
-    return '';
+    return memoryAdminToken;
   }
 }
 
 /** Store the admin token. Silently fails in restricted storage contexts. */
 export function setAdminToken(token: string): void {
+  memoryAdminToken = token;
   try {
     if (token) {
       localStorage.setItem(ADMIN_TOKEN_KEY, token);
