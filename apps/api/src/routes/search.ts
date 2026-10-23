@@ -15,7 +15,11 @@ const SearchSchema = z.object({
 
 export function searchRouter(im: IndexManager, cache: QueryCache, metrics: MetricsTracker): Router {
   const router = Router();
-  const titleWeight = z.coerce.number().min(0).max(20).parse(process.env['BM25_TITLE_WEIGHT'] ?? 0);
+  const titleWeight = z.coerce
+    .number()
+    .min(0)
+    .max(20)
+    .parse(process.env['BM25_TITLE_WEIGHT'] ?? 0);
   router.use(rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }));
   router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     const parsed = SearchSchema.safeParse(req.query);
@@ -31,23 +35,37 @@ export function searchRouter(im: IndexManager, cache: QueryCache, metrics: Metri
       await (cached ? metrics.recordCacheHit() : metrics.recordCacheMiss()).catch(() => {});
       await metrics.recordQuery(q).catch(() => {});
       im.recordQuery(extractTerms(parseQuery(q)));
-      if (cached) { res.json(cached); return; }
-      const result = search(im.index, q, im.docTexts, im.bigramIndex, { page, limit, ranker,
-        bm25: { titleWeight } });
+      if (cached) {
+        res.json(cached);
+        return;
+      }
+      const result = search(im.index, q, im.docTexts, im.bigramIndex, {
+        page,
+        limit,
+        ranker,
+        bm25: { titleWeight },
+      });
       const response = {
         total: result.total,
         tookMs: Math.round((performance.now() - start) * 100) / 100,
         didYouMean: result.didYouMean ?? undefined,
         results: result.results.map((r) => {
           const meta = im.index.docs.get(r.docId);
-          return { id: r.docId, title: meta?.title ?? '', url: meta?.url ?? '',
-            snippet: r.snippet.text, score: Math.round(r.score * 1000) / 1000 };
+          return {
+            id: r.docId,
+            title: meta?.title ?? '',
+            url: meta?.url ?? '',
+            snippet: r.snippet.text,
+            score: Math.round(r.score * 1000) / 1000,
+          };
         }),
       };
       await metrics.recordLatency(response.tookMs).catch(() => {});
       await cache.set(q, ranker, page, limit, response).catch(() => {});
       res.json(response);
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   });
   return router;
 }

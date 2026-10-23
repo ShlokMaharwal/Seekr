@@ -1,0 +1,36 @@
+name: seekr-e2e
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      retries: 20
+    networks: [isolated]
+  mongo:
+    image: mongo:7
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping')"]
+      interval: 2s
+      retries: 30
+    networks: [isolated]
+  tests:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379
+      MONGO_URL: mongodb://mongo:27017
+      NODE_ENV: test
+      ADMIN_TOKEN: fixture-test-token
+      CRAWLER_TEST_ORIGIN: http://tests:8080
+      INDEX_SNAPSHOT_PATH: /tmp/seekr-e2e/index.bin
+      SIMHASH_MAX_DISTANCE: '-1'
+      LOG_LEVEL: warn
+    depends_on:
+      redis: { condition: service_healthy }
+      mongo: { condition: service_healthy }
+    networks: [isolated]
+networks:
+  isolated:
+    internal: true

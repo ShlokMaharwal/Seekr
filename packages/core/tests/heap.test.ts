@@ -47,7 +47,10 @@ describe('MinHeap', () => {
 
 describe('TopKHeap', () => {
   it('retains top K elements by score', () => {
-    interface Item { id: number; score: number }
+    interface Item {
+      id: number;
+      score: number;
+    }
     const heap = new TopKHeap<Item>(3, (a, b) => a.score < b.score);
     for (let i = 1; i <= 10; i++) heap.push({ id: i, score: i });
     const results = heap.results();

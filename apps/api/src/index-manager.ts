@@ -51,6 +51,8 @@ export class IndexManager {
   private readonly store?: DocumentStore | undefined;
   private snapshotTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private reader: Redis | null = null;
+  private consumption: Promise<void> | null = null;
 
   constructor(redis: Redis, store?: DocumentStore, snapshotPath?: string) {
     this.redis = redis;
@@ -67,14 +69,26 @@ export class IndexManager {
 
     try {
       this.index = await loadIndex(this.snapshotPath).catch(async (err: unknown) => {
-        if (this.snapshotPath.endsWith('.bin') && err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+        if (
+          this.snapshotPath.endsWith('.bin') &&
+          err &&
+          typeof err === 'object' &&
+          'code' in err &&
+          err.code === 'ENOENT'
+        ) {
           return loadIndex(this.snapshotPath.replace(/\.bin$/, '.json'));
         }
         throw err;
       });
-      logger.info({ terms: termCount(this.index), docs: this.index.N }, 'Index snapshot loaded successfully');
+      logger.info(
+        { terms: termCount(this.index), docs: this.index.N },
+        'Index snapshot loaded successfully',
+      );
     } catch (err) {
-      logger.warn({ err, path: this.snapshotPath }, 'Snapshot missing, partial, or corrupted; starting with empty index');
+      logger.warn(
+        { err, path: this.snapshotPath },
+        'Snapshot missing, partial, or corrupted; starting with empty index',
+      );
       this.index = createIndex();
     }
 
@@ -91,14 +105,21 @@ export class IndexManager {
         for await (const doc of docStore.stream()) {
           present.add(doc.id);
           const existing = this.index.docs.get(doc.id);
-          if (existing?.text !== doc.text || existing.title !== doc.title || existing.url !== doc.url) {
+          if (
+            existing?.text !== doc.text ||
+            existing.title !== doc.title ||
+            existing.url !== doc.url
+          ) {
             this.indexDocument(doc.id, doc.text, doc.title, doc.url);
           } else this.docTexts.set(doc.id, doc.text);
         }
         let removed = false;
-        for (const id of this.index.docs.keys()) if (!present.has(id)) {
-          removeDocument(this.index, id); this.docTexts.delete(id); removed = true;
-        }
+        for (const id of this.index.docs.keys())
+          if (!present.has(id)) {
+            removeDocument(this.index, id);
+            this.docTexts.delete(id);
+            removed = true;
+          }
         if (removed) this.rebuildAuxiliaryStructures();
       }
     }
@@ -123,7 +144,10 @@ export class IndexManager {
     }
 
     const elapsed = Date.now() - startTime;
-    logger.info({ totalDocs: count, terms: termCount(this.index), tookMs: elapsed }, 'MongoDB index rebuild complete');
+    logger.info(
+      { totalDocs: count, terms: termCount(this.index), tookMs: elapsed },
+      'MongoDB index rebuild complete',
+    );
 
     if (count > 0) {
       await this.saveSnapshot();
@@ -134,7 +158,8 @@ export class IndexManager {
    * Reconstruct BigramIndex and Trie from existing InvertedIndex postings.
    */
   private rebuildAuxiliaryStructures(): void {
-    for (const doc of this.index.docs.values()) if (doc.text !== undefined) this.docTexts.set(doc.docId, doc.text);
+    for (const doc of this.index.docs.values())
+      if (doc.text !== undefined) this.docTexts.set(doc.docId, doc.text);
     const vocabulary = new Set([...this.index.postings.keys(), ...this.index.titlePostings.keys()]);
     this.bigramIndex = buildBigramIndex(vocabulary);
     this.trie.clear();
@@ -147,6 +172,7 @@ export class IndexManager {
 
   async startIndexer(): Promise<void> {
     this.running = true;
+    this.reader = this.redis.duplicate();
 
     // Ensure consumer group exists
     try {
@@ -164,13 +190,17 @@ export class IndexManager {
     }, SNAPSHOT_INTERVAL_MS);
 
     // Start consuming
-    this.consumeLoop().catch((err) => logger.error(err, 'Indexer loop failed'));
+    this.consumption = this.consumeLoop().catch((err: unknown) =>
+      logger.error(err, 'Indexer loop failed'),
+    );
     logger.info('Indexer consumer started');
   }
 
   async stop(): Promise<void> {
     this.running = false;
     if (this.snapshotTimer) clearInterval(this.snapshotTimer);
+    await this.consumption;
+    await this.reader?.quit();
     await this.saveSnapshot();
   }
 
@@ -180,16 +210,18 @@ export class IndexManager {
   async recoverPendingMessages(): Promise<void> {
     try {
       // 1. Process pending messages assigned to this consumer
-      const pendingResults = StreamRead.parse(await this.redis.xreadgroup(
-        'GROUP',
-        CONSUMER_GROUP,
-        CONSUMER_NAME,
-        'COUNT',
-        '100',
-        'STREAMS',
-        INDEXER_STREAM,
-        '0',
-      ));
+      const pendingResults = StreamRead.parse(
+        await this.redis.xreadgroup(
+          'GROUP',
+          CONSUMER_GROUP,
+          CONSUMER_NAME,
+          'COUNT',
+          '100',
+          'STREAMS',
+          INDEXER_STREAM,
+          '0',
+        ),
+      );
 
       if (pendingResults) {
         for (const [, messages] of pendingResults) {
@@ -203,23 +235,28 @@ export class IndexManager {
       try {
         let cursor = '0-0';
         do {
-        const claimResult = StreamClaim.parse(await this.redis.xautoclaim(
-          INDEXER_STREAM,
-          CONSUMER_GROUP,
-          CONSUMER_NAME,
-          30000,
-          cursor,
-          'COUNT',
-          100,
-        ));
-        cursor = claimResult[0];
+          const claimResult = StreamClaim.parse(
+            await this.redis.xautoclaim(
+              INDEXER_STREAM,
+              CONSUMER_GROUP,
+              CONSUMER_NAME,
+              30000,
+              cursor,
+              'COUNT',
+              100,
+            ),
+          );
+          cursor = claimResult[0];
 
-        if (claimResult && claimResult[1] && claimResult[1].length > 0) {
-          logger.info({ count: claimResult[1].length }, 'Claimed abandoned pending messages via XAUTOCLAIM');
-          for (const [msgId, fields] of claimResult[1]) {
-            await this.processStreamMessage(msgId, fields);
+          if (claimResult && claimResult[1] && claimResult[1].length > 0) {
+            logger.info(
+              { count: claimResult[1].length },
+              'Claimed abandoned pending messages via XAUTOCLAIM',
+            );
+            for (const [msgId, fields] of claimResult[1]) {
+              await this.processStreamMessage(msgId, fields);
+            }
           }
-        }
         } while (cursor !== '0-0');
       } catch (err) {
         logger.debug({ err }, 'XAUTOCLAIM not supported or completed with error');
@@ -238,18 +275,20 @@ export class IndexManager {
           nextRecovery = Date.now() + 30_000;
         }
         // Read up to 20 messages, block for 1 second if stream is empty
-        const results = StreamRead.parse(await this.redis.xreadgroup(
-          'GROUP',
-          CONSUMER_GROUP,
-          CONSUMER_NAME,
-          'COUNT',
-          '20',
-          'BLOCK',
-          '1000',
-          'STREAMS',
-          INDEXER_STREAM,
-          '>',
-        ));
+        const results = StreamRead.parse(
+          await (this.reader ?? this.redis).xreadgroup(
+            'GROUP',
+            CONSUMER_GROUP,
+            CONSUMER_NAME,
+            'COUNT',
+            '20',
+            'BLOCK',
+            '1000',
+            'STREAMS',
+            INDEXER_STREAM,
+            '>',
+          ),
+        );
 
         if (!results) continue;
 
@@ -275,7 +314,10 @@ export class IndexManager {
       await this.redis.xack(INDEXER_STREAM, CONSUMER_GROUP, msgId);
     } else {
       // Poison message: fails to parse. Move to dead-letter stream, log, and acknowledge
-      logger.warn({ msgId, fields }, 'Poison message in stream: failed to parse, moving to DLQ and acknowledging');
+      logger.warn(
+        { msgId, fields },
+        'Poison message in stream: failed to parse, moving to DLQ and acknowledging',
+      );
       try {
         await this.redis.xadd(
           `${INDEXER_STREAM}:dlq`,
@@ -302,7 +344,10 @@ export class IndexManager {
    */
   indexDocument(id: string, text: string, title: string, url: string): void {
     const current = this.index.docs.get(id);
-    if (current?.text === text && current.title === title && current.url === url) { this.docTexts.set(id, text); return; }
+    if (current?.text === text && current.title === title && current.url === url) {
+      this.docTexts.set(id, text);
+      return;
+    }
     const isUpdate = this.index.docs.has(id);
     // addDocument atomically removes old postings first if id exists
     addDocument(this.index, id, text, title, url);
@@ -313,7 +358,8 @@ export class IndexManager {
       this.rebuildAuxiliaryStructures();
     } else {
       const frequencies = new Map<string, number>();
-      for (const term of tokenizeTerms(`${title} ${text}`)) frequencies.set(term, (frequencies.get(term) ?? 0) + 1);
+      for (const term of tokenizeTerms(`${title} ${text}`))
+        frequencies.set(term, (frequencies.get(term) ?? 0) + 1);
       for (const [term, frequency] of frequencies) {
         addTermToBigramIndex(this.bigramIndex, term);
         this.trie.insert(term, frequency);
@@ -331,7 +377,10 @@ export class IndexManager {
   async saveSnapshot(): Promise<void> {
     try {
       await saveIndex(this.index, this.snapshotPath);
-      logger.info({ path: this.snapshotPath, terms: termCount(this.index) }, 'Index snapshot saved');
+      logger.info(
+        { path: this.snapshotPath, terms: termCount(this.index) },
+        'Index snapshot saved',
+      );
     } catch (err) {
       logger.error(err, 'Failed to save index snapshot');
     }

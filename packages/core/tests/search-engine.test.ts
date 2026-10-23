@@ -5,9 +5,11 @@ import { search } from '../src/search-engine.js';
 
 describe('full query semantics', () => {
   function fixture() {
-    const index = createIndex(); const texts = new Map<string, string>();
+    const index = createIndex();
+    const texts = new Map<string, string>();
     ['binary tree', 'binary graph', 'binary the tree', 'graph network'].forEach((text, i) => {
-      addDocument(index, String(i), text, '', ''); texts.set(String(i), text);
+      addDocument(index, String(i), text, '', '');
+      texts.set(String(i), text);
     });
     return { index, texts, bigrams: buildBigramIndex(index.postings.keys()) };
   }
@@ -18,8 +20,12 @@ describe('full query semantics', () => {
   });
   it('honors gaps left by stopwords in phrases', () => {
     const f = fixture();
-    expect(search(f.index, '"binary the tree"', f.texts, f.bigrams).results.map(r => r.docId)).toEqual(['2']);
-    expect(search(f.index, '"binary tree"', f.texts, f.bigrams).results.map(r => r.docId)).toEqual(['0']);
+    expect(
+      search(f.index, '"binary the tree"', f.texts, f.bigrams).results.map((r) => r.docId),
+    ).toEqual(['2']);
+    expect(
+      search(f.index, '"binary tree"', f.texts, f.bigrams).results.map((r) => r.docId),
+    ).toEqual(['0']);
   });
   it('reports all matches independent of page and filters before top K', () => {
     const f = fixture();

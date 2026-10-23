@@ -1,4 +1,3 @@
-
 /**
  * Crawler entrypoint.
  *
@@ -9,39 +8,21 @@ import { Redis } from 'ioredis';
 import { CrawlerWorker } from './worker.js';
 import { UrlFrontier } from './frontier.js';
 import { logger } from './logger.js';
+import { parseCrawlConfig } from './config.js';
 
 const K_CONTROL = 'crawl:control';
 const K_CONFIG = 'crawl:config';
 
-interface CrawlConfig {
-  seeds: string[];
-  maxPages: number;
-  delayMs: number;
-  workers: number;
-}
-
-const DEFAULT_CONFIG: CrawlConfig = {
-  seeds: [],
-  maxPages: 10_000,
-  delayMs: 500,
-  workers: 1,
-};
-
 async function main(): Promise<void> {
-  const redisUrl =
-    process.env['REDIS_URL'] ?? 'redis://localhost:6379';
+  const redisUrl = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 
-  const mongoUrl =
-    process.env['MONGO_URL'] ?? 'mongodb://localhost:27017';
+  const mongoUrl = process.env['MONGO_URL'] ?? 'mongodb://localhost:27017';
 
   const redis = new Redis(redisUrl, {
     maxRetriesPerRequest: 3,
   });
 
-  logger.info(
-    { redisUrl },
-    'Crawler entrypoint waiting for start signal',
-  );
+  logger.info({ redisUrl }, 'Crawler entrypoint waiting for start signal');
 
   try {
     while (true) {
@@ -54,12 +35,7 @@ async function main(): Promise<void> {
 
       const configRaw = await redis.get(K_CONFIG);
 
-      const config: CrawlConfig = configRaw
-        ? {
-            ...DEFAULT_CONFIG,
-            ...(JSON.parse(configRaw) as Partial<CrawlConfig>),
-          }
-        : DEFAULT_CONFIG;
+      const config = parseCrawlConfig(configRaw);
 
       logger.info({ config }, 'Starting crawl');
 
@@ -75,10 +51,7 @@ async function main(): Promise<void> {
         try {
           const parsedUrl = new URL(seed);
 
-          if (
-            parsedUrl.protocol !== 'http:' &&
-            parsedUrl.protocol !== 'https:'
-          ) {
+          if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
             logger.warn({ seed }, 'Unsupported seed URL protocol');
             continue;
           }
@@ -118,10 +91,7 @@ async function main(): Promise<void> {
   }
 }
 
-async function watchControl(
-  redis: Redis,
-  worker: CrawlerWorker,
-): Promise<void> {
+async function watchControl(redis: Redis, worker: CrawlerWorker): Promise<void> {
   while (true) {
     const cmd = await redis.get(K_CONTROL);
 

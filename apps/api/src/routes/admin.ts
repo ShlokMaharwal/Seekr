@@ -19,15 +19,24 @@ import type { DocumentStore } from '../store.js';
 
 // Redis keys (must match crawler)
 const K_CONTROL = 'crawl:control';
-const K_CONFIG  = 'crawl:config';
-const K_QUEUE   = 'stats:queueSize';
-const K_DUPS    = 'stats:duplicates';
-const K_FAIL    = 'stats:failures';
-const K_FEED    = 'feed:events';
+const K_CONFIG = 'crawl:config';
+const K_QUEUE = 'stats:queueSize';
+const K_DUPS = 'stats:duplicates';
+const K_FAIL = 'stats:failures';
+const K_FEED = 'feed:events';
 const K_CRAWL_RATE = 'stats:crawlRate';
 
 const StartSchema = z.object({
-  seeds: z.array(z.string().url().max(2048).refine(s => ['http:', 'https:'].includes(new URL(s).protocol))).min(1).max(100),
+  seeds: z
+    .array(
+      z
+        .string()
+        .url()
+        .max(2048)
+        .refine((s) => ['http:', 'https:'].includes(new URL(s).protocol)),
+    )
+    .min(1)
+    .max(100),
   maxPages: z.number().int().min(1).max(1_000_000).default(10_000),
   delayMs: z.number().int().min(0).max(60_000).default(500),
   workers: z.number().int().min(1).max(10).default(1),
@@ -74,10 +83,15 @@ export function adminRouter(
   router.get('/crawl/feed', async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const raw = await redis.lrange(K_FEED, 0, 49);
-      const events = raw.map((r) => {
-        try { return JSON.parse(r); }
-        catch { return null; }
-      }).filter(Boolean);
+      const events = raw
+        .map((r) => {
+          try {
+            return JSON.parse(r);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
       res.json(events);
     } catch (err) {
       next(err);
@@ -110,7 +124,7 @@ export function adminRouter(
       return;
     }
     try {
-      if (await redis.get(K_CONTROL) === 'pause') {
+      if ((await redis.get(K_CONTROL)) === 'pause') {
         await redis.set(K_CONTROL, 'resume');
         res.status(204).end();
         return;
@@ -162,9 +176,7 @@ async function computePagesPerMin(redis: Redis): Promise<number> {
   // The crawl rate ZSET has member=ts and score=ts (via ZADD NX)
   // The actual count per bucket is the ZINCRBY score — we stored ts as both member and score
   // but ZINCRBY updates the score. So we need to sum scores in the last minute.
-  const entries = await redis.zrangebyscore(
-    K_CRAWL_RATE, oneMinuteAgo, '+inf', 'WITHSCORES',
-  );
+  const entries = await redis.zrangebyscore(K_CRAWL_RATE, oneMinuteAgo, '+inf', 'WITHSCORES');
 
   let total = 0;
   for (let i = 0; i < entries.length; i += 2) {

@@ -14,7 +14,9 @@ function buildTestIndex(): InvertedIndex {
 
 describe('BM25', () => {
   let index: InvertedIndex;
-  beforeEach(() => { index = buildTestIndex(); });
+  beforeEach(() => {
+    index = buildTestIndex();
+  });
 
   it('returns results for a matching query', () => {
     const results = scoreBM25(index, ['search', 'retriev'], 10);
@@ -64,7 +66,9 @@ describe('BM25', () => {
 
 describe('TF-IDF', () => {
   let index: InvertedIndex;
-  beforeEach(() => { index = buildTestIndex(); });
+  beforeEach(() => {
+    index = buildTestIndex();
+  });
 
   it('returns results for a matching query', () => {
     const results = scoreTFIDF(index, ['search', 'retriev'], 10);

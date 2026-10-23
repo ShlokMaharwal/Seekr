@@ -18,10 +18,15 @@ const DURATION_SEC = parseInt(process.argv[3] ?? '30', 10);
 const CONCURRENCY = parseInt(process.argv[4] ?? '10', 10);
 
 const QUERIES = [
-  'binary tree', 'graph algorithm', 'search engine ranking',
-  'machine learning neural', 'data structures heap',
-  'distributed systems consistency', 'hash table implementation',
-  'sorting algorithm quicksort', 'information retrieval bm25',
+  'binary tree',
+  'graph algorithm',
+  'search engine ranking',
+  'machine learning neural',
+  'data structures heap',
+  'distributed systems consistency',
+  'hash table implementation',
+  'sorting algorithm quicksort',
+  'information retrieval bm25',
   'compiler parser grammar',
 ];
 
@@ -77,7 +82,7 @@ async function runBench(label, ranker, warmCache) {
 
 function pct(sorted, p) {
   if (!sorted.length) return 0;
-  const idx = Math.ceil(p / 100 * sorted.length) - 1;
+  const idx = Math.ceil((p / 100) * sorted.length) - 1;
   return sorted[Math.min(idx, sorted.length - 1)];
 }
 
@@ -90,12 +95,13 @@ function row(r) {
 }
 
 async function main() {
-  console.log(`\nSearch benchmark — ${DURATION_SEC}s, concurrency=${CONCURRENCY}, API=${API_URL}\n`);
+  console.log(
+    `\nSearch benchmark — ${DURATION_SEC}s, concurrency=${CONCURRENCY}, API=${API_URL}\n`,
+  );
 
   const header =
     '| Scenario                       |     RPS |  p50 ms |  p95 ms |  p99 ms | Errors |';
-  const sep =
-    '|--------------------------------|---------|---------|---------|---------|--------|';
+  const sep = '|--------------------------------|---------|---------|---------|---------|--------|';
 
   const results = await Promise.all([
     runBench('BM25 cold cache', 'bm25', false),

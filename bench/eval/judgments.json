@@ -1,22 +1,49 @@
 [
-  {"q":"binary search tree","grades":{"Binary_search_tree":3,"Binary_tree":2,"Binary_search_algorithm":1}},
-  {"q":"binary search","grades":{"Binary_search_algorithm":3,"Binary_search_tree":2,"Search_algorithm":1}},
-  {"q":"hash table","grades":{"Hash_table":3,"Hash_function":2,"Data_structure":1}},
-  {"q":"hash function","grades":{"Hash_function":3,"Hash_table":2}},
-  {"q":"graph traversal","grades":{"Graph_traversal":3,"Breadth-first_search":2,"Depth-first_search":2}},
-  {"q":"breadth first search","grades":{"Breadth-first_search":3,"Graph_traversal":2}},
-  {"q":"depth first search","grades":{"Depth-first_search":3,"Graph_traversal":2}},
-  {"q":"shortest path","grades":{"Shortest_path_problem":3,"Dijkstra%27s_algorithm":2}},
-  {"q":"sorting algorithm","grades":{"Sorting_algorithm":3,"Quicksort":2,"Merge_sort":2}},
-  {"q":"merge sort","grades":{"Merge_sort":3,"Sorting_algorithm":2}},
-  {"q":"quicksort","grades":{"Quicksort":3,"Sorting_algorithm":2}},
-  {"q":"dynamic programming","grades":{"Dynamic_programming":3,"Algorithm":1}},
-  {"q":"data structure","grades":{"Data_structure":3,"Binary_tree":2,"Hash_table":2}},
-  {"q":"information retrieval","grades":{"Information_retrieval":3,"Search_engine_indexing":2,"Okapi_BM25":2}},
-  {"q":"inverted index","grades":{"Inverted_index":3,"Search_engine_indexing":2,"Information_retrieval":1}},
-  {"q":"search engine indexing","grades":{"Search_engine_indexing":3,"Inverted_index":2,"Information_retrieval":1}},
-  {"q":"BM25","grades":{"Okapi_BM25":3,"Tf%E2%80%93idf":2,"Information_retrieval":1}},
-  {"q":"machine learning","grades":{"Machine_learning":3,"Neural_network_(machine_learning)":2}},
-  {"q":"distributed computing","grades":{"Distributed_computing":3,"Consensus_(computer_science)":2}},
-  {"q":"database transaction","grades":{"Database_transaction":3,"ACID":2,"Database":1}}
+  {
+    "q": "binary search tree",
+    "grades": { "Binary_search_tree": 3, "Binary_tree": 2, "Binary_search_algorithm": 1 }
+  },
+  {
+    "q": "binary search",
+    "grades": { "Binary_search_algorithm": 3, "Binary_search_tree": 2, "Search_algorithm": 1 }
+  },
+  { "q": "hash table", "grades": { "Hash_table": 3, "Hash_function": 2, "Data_structure": 1 } },
+  { "q": "hash function", "grades": { "Hash_function": 3, "Hash_table": 2 } },
+  {
+    "q": "graph traversal",
+    "grades": { "Graph_traversal": 3, "Breadth-first_search": 2, "Depth-first_search": 2 }
+  },
+  { "q": "breadth first search", "grades": { "Breadth-first_search": 3, "Graph_traversal": 2 } },
+  { "q": "depth first search", "grades": { "Depth-first_search": 3, "Graph_traversal": 2 } },
+  { "q": "shortest path", "grades": { "Shortest_path_problem": 3, "Dijkstra%27s_algorithm": 2 } },
+  {
+    "q": "sorting algorithm",
+    "grades": { "Sorting_algorithm": 3, "Quicksort": 2, "Merge_sort": 2 }
+  },
+  { "q": "merge sort", "grades": { "Merge_sort": 3, "Sorting_algorithm": 2 } },
+  { "q": "quicksort", "grades": { "Quicksort": 3, "Sorting_algorithm": 2 } },
+  { "q": "dynamic programming", "grades": { "Dynamic_programming": 3, "Algorithm": 1 } },
+  { "q": "data structure", "grades": { "Data_structure": 3, "Binary_tree": 2, "Hash_table": 2 } },
+  {
+    "q": "information retrieval",
+    "grades": { "Information_retrieval": 3, "Search_engine_indexing": 2, "Okapi_BM25": 2 }
+  },
+  {
+    "q": "inverted index",
+    "grades": { "Inverted_index": 3, "Search_engine_indexing": 2, "Information_retrieval": 1 }
+  },
+  {
+    "q": "search engine indexing",
+    "grades": { "Search_engine_indexing": 3, "Inverted_index": 2, "Information_retrieval": 1 }
+  },
+  { "q": "BM25", "grades": { "Okapi_BM25": 3, "Tf%E2%80%93idf": 2, "Information_retrieval": 1 } },
+  {
+    "q": "machine learning",
+    "grades": { "Machine_learning": 3, "Neural_network_(machine_learning)": 2 }
+  },
+  {
+    "q": "distributed computing",
+    "grades": { "Distributed_computing": 3, "Consensus_(computer_science)": 2 }
+  },
+  { "q": "database transaction", "grades": { "Database_transaction": 3, "ACID": 2, "Database": 1 } }
 ]

@@ -14,7 +14,14 @@ export function docRouter(store: DocumentStore): Router {
 
   router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     const { id } = req.params;
-    if (!z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/).safeParse(id).success) {
+    if (
+      !z
+        .string()
+        .min(1)
+        .max(128)
+        .regex(/^[a-zA-Z0-9_-]+$/)
+        .safeParse(id).success
+    ) {
       res.status(400).json({ error: 'Missing document ID' });
       return;
     }

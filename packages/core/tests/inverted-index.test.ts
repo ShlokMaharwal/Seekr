@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createIndex, addDocument, removeDocument, getPostings, df, termCount } from '../src/inverted-index.js';
+import {
+  createIndex,
+  addDocument,
+  removeDocument,
+  getPostings,
+  df,
+  termCount,
+} from '../src/inverted-index.js';
 import type { InvertedIndex } from '../src/types.js';
 
 describe('InvertedIndex', () => {
@@ -28,14 +35,16 @@ describe('InvertedIndex', () => {
     // At least one term's posting should reference doc1
     let foundDoc1 = false;
     for (const postings of index.postings.values()) {
-      if (postings.some((p) => p.docId === 'doc1')) { foundDoc1 = true; break; }
+      if (postings.some((p) => p.docId === 'doc1')) {
+        foundDoc1 = true;
+        break;
+      }
     }
     expect(foundDoc1).toBe(true);
   });
 
   it('records term frequency correctly', () => {
     addDocument(index, 'doc1', 'cat cat cat dog', 'T', 'U');
-    const stemmedCat = 'cat'; // cat→cat (no change needed, but stemmer might change it)
     // Find the term that "cat" stems to
     const catTerm = [...index.postings.keys()].find((k) => k.startsWith('cat'));
     if (catTerm) {
@@ -100,14 +109,26 @@ describe('InvertedIndex', () => {
 
   it('guarantees idempotent indexing across repeated document deliveries', () => {
     // Add doc1
-    addDocument(index, 'doc1', 'distributed systems consensus protocol', 'Doc 1', 'http://example.com/1');
+    addDocument(
+      index,
+      'doc1',
+      'distributed systems consensus protocol',
+      'Doc 1',
+      'http://example.com/1',
+    );
     const initialN = index.N;
     const initialAvgLen = index.avgDocLen;
     const initialTermCount = termCount(index);
 
     // Re-index doc1 with the same content 5 times
     for (let i = 0; i < 5; i++) {
-      addDocument(index, 'doc1', 'distributed systems consensus protocol', 'Doc 1', 'http://example.com/1');
+      addDocument(
+        index,
+        'doc1',
+        'distributed systems consensus protocol',
+        'Doc 1',
+        'http://example.com/1',
+      );
     }
 
     expect(index.N).toBe(initialN);
@@ -115,7 +136,7 @@ describe('InvertedIndex', () => {
     expect(termCount(index)).toBe(initialTermCount);
 
     // Verify each posting list contains doc1 at most once
-    for (const [term, postings] of index.postings) {
+    for (const postings of index.postings.values()) {
       const doc1Postings = postings.filter((p) => p.docId === 'doc1');
       expect(doc1Postings.length).toBe(1);
     }

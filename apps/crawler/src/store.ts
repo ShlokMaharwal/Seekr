@@ -59,11 +59,7 @@ export class DocumentStore {
    * Returns true if the document was new, false if it was an update.
    */
   async upsert(doc: StoredDocument): Promise<boolean> {
-    const result = await this.col.updateOne(
-      { url: doc.url },
-      { $set: doc },
-      { upsert: true },
-    );
+    const result = await this.col.updateOne({ url: doc.url }, { $set: doc }, { upsert: true });
     return result.upsertedCount > 0;
   }
 
@@ -82,8 +78,12 @@ export class DocumentStore {
 
   async hasNearDuplicate(hash: string, url: string, threshold: number): Promise<boolean> {
     if (threshold < 0) return false;
-    if (!Number.isInteger(threshold) || threshold > 3) throw new Error('SimHash threshold must be -1..3');
-    const cursor = this.col.find({ url: { $ne: url }, simHashBands: { $in: simHashBands(hash) } }, { projection: { simHash: 1 } });
+    if (!Number.isInteger(threshold) || threshold > 3)
+      throw new Error('SimHash threshold must be -1..3');
+    const cursor = this.col.find(
+      { url: { $ne: url }, simHashBands: { $in: simHashBands(hash) } },
+      { projection: { simHash: 1 } },
+    );
     for await (const candidate of cursor) {
       if (candidate.simHash && hammingDistance(hash, candidate.simHash) <= threshold) return true;
     }

@@ -4,11 +4,11 @@ services:
     restart: unless-stopped
     command: redis-server --save 60 1 --loglevel warning
     ports:
-      - "127.0.0.1:6379:6379"
+      - '127.0.0.1:6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 5
@@ -21,13 +21,13 @@ services:
     image: mongo:7
     restart: unless-stopped
     ports:
-      - "127.0.0.1:27017:27017"
+      - '127.0.0.1:27017:27017'
     volumes:
       - mongo_data:/data/db
     environment:
       MONGO_INITDB_DATABASE: seekr
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping')\" || exit 1"]
+      test: ['CMD-SHELL', 'mongosh --quiet --eval "db.adminCommand(''ping'')" || exit 1']
       interval: 10s
       timeout: 10s
       retries: 6
@@ -43,11 +43,11 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     ports:
-      - "4001:4000"
+      - '4001:4000'
     environment:
       REDIS_URL: redis://redis:6379
       MONGO_URL: mongodb://mongo:27017
-      PORT: "4000"
+      PORT: '4000'
       LOG_LEVEL: info
       INDEX_SNAPSHOT_PATH: /data/index.bin
       BM25_TITLE_WEIGHT: ${BM25_TITLE_WEIGHT:-0}
@@ -61,7 +61,7 @@ services:
       mongo:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:4000/health']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -96,4 +96,3 @@ volumes:
   redis_data:
   mongo_data:
   index_data:
-

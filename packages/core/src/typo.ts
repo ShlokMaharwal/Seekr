@@ -30,18 +30,14 @@ export function levenshtein(a: string, b: string, maxDist = Infinity): number {
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
       curr[j] = Math.min(
-        (prev[j] as number) + 1,     // deletion
+        (prev[j] as number) + 1, // deletion
         (curr[j - 1] as number) + 1, // insertion
         (prev[j - 1] as number) + cost, // substitution
       );
 
       // Transposition: swap of two adjacent characters
       // Only valid when i >= 2 and j >= 2 and a[i-1]==b[j-2] and a[i-2]==b[j-1]
-      if (
-        i > 1 && j > 1 &&
-        a[i - 1] === b[j - 2] &&
-        a[i - 2] === b[j - 1]
-      ) {
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
         curr[j] = Math.min(
           curr[j] as number,
           (prevPrev[j - 2] as number) + cost, // transposition
@@ -59,7 +55,6 @@ export function levenshtein(a: string, b: string, maxDist = Infinity): number {
 
   return prev[b.length] as number;
 }
-
 
 // ---------------------------------------------------------------------------
 // Bigram index

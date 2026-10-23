@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  levenshtein,
-  bigrams,
-  buildBigramIndex,
-  findCandidates,
-  didYouMean,
-} from '../src/typo.js';
+import { levenshtein, bigrams, buildBigramIndex, findCandidates, didYouMean } from '../src/typo.js';
 
 describe('levenshtein()', () => {
   it('returns 0 for identical strings', () => {
@@ -119,7 +113,10 @@ describe('didYouMean()', () => {
     const vocab = ['search', 'engine', 'information', 'retrieval'];
     const idx = buildBigramIndex(vocab);
     // "seach" has 0 hits
-    const hitCounts = new Map([['seach', 0], ['engine', 5]]);
+    const hitCounts = new Map([
+      ['seach', 0],
+      ['engine', 5],
+    ]);
     const suggestion = didYouMean(['seach', 'engine'], hitCounts, idx);
     expect(suggestion).not.toBeNull();
     expect(suggestion).toContain('search');
@@ -128,7 +125,10 @@ describe('didYouMean()', () => {
   it('returns null when all terms have hits', () => {
     const vocab = ['search', 'engine'];
     const idx = buildBigramIndex(vocab);
-    const hitCounts = new Map([['search', 10], ['engine', 5]]);
+    const hitCounts = new Map([
+      ['search', 10],
+      ['engine', 5],
+    ]);
     const suggestion = didYouMean(['search', 'engine'], hitCounts, idx);
     expect(suggestion).toBeNull();
   });

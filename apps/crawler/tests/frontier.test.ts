@@ -42,9 +42,13 @@ describe('UrlFrontier Reliable Queue', () => {
   });
 
   it('reaps stale processing entries and re-enqueues them', async () => {
-    const stalePayload = JSON.stringify({ url: 'https://example.com/stale-page', domain: 'example.com' });
+    const stalePayload = JSON.stringify({
+      url: 'https://example.com/stale-page',
+      domain: 'example.com',
+    });
     const mockRedis = {
-      scan: vi.fn()
+      scan: vi
+        .fn()
         .mockResolvedValueOnce(['1', ['frontier:processing:worker-crashed']])
         .mockResolvedValueOnce(['0', []]),
       zrangebyscore: vi.fn().mockResolvedValue([stalePayload]),
@@ -59,8 +63,16 @@ describe('UrlFrontier Reliable Queue', () => {
     const reaped = await frontier.reapStale(60_000);
 
     expect(reaped).toBe(1);
-    expect(mockRedis.eval).toHaveBeenCalledWith(expect.any(String), 3,
-      'frontier:processing:worker-crashed', 'frontier:queue:example.com', 'frontier:domains',
-      stalePayload, expect.any(Number), 'https://example.com/stale-page', 'example.com');
+    expect(mockRedis.eval).toHaveBeenCalledWith(
+      expect.any(String),
+      3,
+      'frontier:processing:worker-crashed',
+      'frontier:queue:example.com',
+      'frontier:domains',
+      stalePayload,
+      expect.any(Number),
+      'https://example.com/stale-page',
+      'example.com',
+    );
   });
 });

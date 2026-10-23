@@ -1,5 +1,7 @@
 # Seekr – Custom Search Engine
 
+[![CI](https://github.com/ShlokMaharwal/Seekr/actions/workflows/ci.yml/badge.svg)](https://github.com/ShlokMaharwal/Seekr/actions/workflows/ci.yml)
+
 A from-scratch web search engine: crawler → inverted index → BM25 ranking → REST API.
 No Elasticsearch, Lucene, or Meilisearch. Every algorithm is implemented by hand.
 
@@ -168,12 +170,12 @@ seekr/
 
 ### Why BM25 over TF-IDF?
 
-| Property | TF-IDF | BM25 |
-|----------|--------|------|
-| TF saturation | None — scores grow unboundedly with term frequency | Saturates (k1 parameter): a term appearing 100× is not 100× more relevant than one appearing 10× |
-| Length normalization | None by default | b=0.75 penalises long documents that contain terms by sheer volume |
-| Short-query relevance | Good | Better — IDF formula handles the case df > N/2 without going negative |
-| Tunable | No | Yes — k1 (saturation), b (length norm) can be tuned per corpus |
+| Property              | TF-IDF                                             | BM25                                                                                             |
+| --------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| TF saturation         | None — scores grow unboundedly with term frequency | Saturates (k1 parameter): a term appearing 100× is not 100× more relevant than one appearing 10× |
+| Length normalization  | None by default                                    | b=0.75 penalises long documents that contain terms by sheer volume                               |
+| Short-query relevance | Good                                               | Better — IDF formula handles the case df > N/2 without going negative                            |
+| Tunable               | No                                                 | Yes — k1 (saturation), b (length norm) can be tuned per corpus                                   |
 
 BM25 consistently outperforms TF-IDF on standard IR benchmarks (TREC, MS MARCO) because web documents vary wildly in length. A 10-word answer page and a 50,000-word textbook chapter shouldn't compete on raw TF alone.
 
@@ -199,20 +201,20 @@ Delta-encoded position arrays reduce file size by 30-50% vs raw arrays, because 
 
 ### Search Throughput
 
-| Scenario                       |     RPS |  p50 ms |  p95 ms |  p99 ms | Errors |
-|--------------------------------|---------|---------|---------|---------|--------|
-| BM25 cold cache                |     820 |      11 |      28 |      45 |      0 |
-| BM25 warm cache                |    3240 |       3 |       8 |      14 |      0 |
-| TF-IDF cold cache              |     890 |      10 |      25 |      41 |      0 |
-| TF-IDF warm cache              |    3310 |       3 |       7 |      13 |      0 |
+| Scenario          | RPS  | p50 ms | p95 ms | p99 ms | Errors |
+| ----------------- | ---- | ------ | ------ | ------ | ------ |
+| BM25 cold cache   | 820  | 11     | 28     | 45     | 0      |
+| BM25 warm cache   | 3240 | 3      | 8      | 14     | 0      |
+| TF-IDF cold cache | 890  | 10     | 25     | 41     | 0      |
+| TF-IDF warm cache | 3310 | 3      | 7      | 13     | 0      |
 
 > Cache provides ~4× throughput improvement. BM25 and TF-IDF have similar latency since both are O(N log K) with the min-heap.
 
 ### Crawl Throughput
 
-| Workers | Pages/min | Notes |
-|---------|-----------|-------|
-| 1       | 18        | Single process, 500ms politeness delay |
+| Workers | Pages/min | Notes                                            |
+| ------- | --------- | ------------------------------------------------ |
+| 1       | 18        | Single process, 500ms politeness delay           |
 | 3       | 52        | Near-linear scaling (separate queues per domain) |
 
 ---
@@ -222,6 +224,7 @@ Delta-encoded position arrays reduce file size by 30-50% vs raw arrays, because 
 ### Option A: Complete Stack with Docker (Recommended)
 
 #### Prerequisites
+
 - Docker + Docker Compose v2
 - Node.js 20+
 
@@ -283,17 +286,17 @@ npm test -w packages/core  # core only
 
 ## API Reference
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/search?q=&page=&limit=&ranker=` | Full-text search |
-| `GET` | `/autocomplete?q=` | Prefix autocomplete suggestions |
-| `GET` | `/doc/:id` | Fetch full document |
-| `GET` | `/admin/stats` | Corpus and crawl statistics |
-| `GET` | `/admin/crawl/feed` | Recent crawl event feed |
-| `GET` | `/admin/metrics` | Latency percentiles and top queries |
-| `POST` | `/admin/crawl/start` | Start a crawl `{ seeds, maxPages, delayMs, workers }` |
-| `POST` | `/admin/crawl/pause` | Pause the running crawl |
-| `POST` | `/admin/crawl/stop` | Stop and reset |
+| Method | Path                              | Description                                           |
+| ------ | --------------------------------- | ----------------------------------------------------- |
+| `GET`  | `/search?q=&page=&limit=&ranker=` | Full-text search                                      |
+| `GET`  | `/autocomplete?q=`                | Prefix autocomplete suggestions                       |
+| `GET`  | `/doc/:id`                        | Fetch full document                                   |
+| `GET`  | `/admin/stats`                    | Corpus and crawl statistics                           |
+| `GET`  | `/admin/crawl/feed`               | Recent crawl event feed                               |
+| `GET`  | `/admin/metrics`                  | Latency percentiles and top queries                   |
+| `POST` | `/admin/crawl/start`              | Start a crawl `{ seeds, maxPages, delayMs, workers }` |
+| `POST` | `/admin/crawl/pause`              | Pause the running crawl                               |
+| `POST` | `/admin/crawl/stop`               | Stop and reset                                        |
 
 ---
 

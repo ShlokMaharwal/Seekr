@@ -125,11 +125,16 @@ describe('IndexManager', () => {
     const manager = new IndexManager(mockRedis, undefined, snapshotFile);
 
     const validFields = [
-      'id', 'doc-stream-1',
-      'url', 'http://example.com/stream-1',
-      'title', 'Stream Doc',
-      'text', 'high throughput streaming architecture',
-      'wordCount', '4',
+      'id',
+      'doc-stream-1',
+      'url',
+      'http://example.com/stream-1',
+      'title',
+      'Stream Doc',
+      'text',
+      'high throughput streaming architecture',
+      'wordCount',
+      '4',
     ];
 
     // Deliver message twice
@@ -158,18 +163,26 @@ describe('IndexManager', () => {
     const old = new IndexManager(mockRedis, undefined, snapshotFile);
     old.indexDocument('a', 'outdated text', 'Old', 'https://example.org/a');
     await saveIndex(old.index, snapshotFile);
-    const mockStore = { stream: async function* () {
-      yield { id: 'a', text: 'binary tree', title: 'Updated', url: 'https://example.org/a' };
-      yield { id: 'b', text: 'binary graph', title: 'New', url: 'https://example.org/b' };
-    } } as unknown as DocumentStore;
+    const mockStore = {
+      stream: async function* () {
+        yield { id: 'a', text: 'binary tree', title: 'Updated', url: 'https://example.org/a' };
+        yield { id: 'b', text: 'binary graph', title: 'New', url: 'https://example.org/b' };
+      },
+    } as unknown as DocumentStore;
     const manager = new IndexManager(mockRedis, mockStore, snapshotFile);
     await manager.load();
     expect(manager.index.N).toBe(2);
-    expect(search(manager.index, 'binary', manager.docTexts, manager.bigramIndex).results.every(r => r.snippet.text.length > 0)).toBe(true);
+    expect(
+      search(manager.index, 'binary', manager.docTexts, manager.bigramIndex).results.every(
+        (r) => r.snippet.text.length > 0,
+      ),
+    ).toBe(true);
   });
 
   it('drains every XAUTOCLAIM batch', async () => {
-    vi.mocked(mockRedis.xautoclaim).mockResolvedValueOnce(['10-0', []]).mockResolvedValueOnce(['0-0', []]);
+    vi.mocked(mockRedis.xautoclaim)
+      .mockResolvedValueOnce(['10-0', []])
+      .mockResolvedValueOnce(['0-0', []]);
     await new IndexManager(mockRedis, undefined, snapshotFile).recoverPendingMessages();
     expect(mockRedis.xautoclaim).toHaveBeenCalledTimes(2);
   });

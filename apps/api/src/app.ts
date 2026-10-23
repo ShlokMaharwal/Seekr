@@ -25,11 +25,7 @@ import type { DocumentStore } from './store.js';
 import { type Redis } from 'ioredis';
 
 /** Default allowed origins for local development */
-const DEFAULT_ORIGINS = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://localhost:8080',
-];
+const DEFAULT_ORIGINS = ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080'];
 
 /**
  * Parse allowed CORS origins from environment or fall back to dev defaults.
@@ -38,7 +34,10 @@ const DEFAULT_ORIGINS = [
 function parseCorsOrigins(): string[] {
   const envOrigins = process.env['CORS_ORIGINS'];
   if (envOrigins) {
-    return envOrigins.split(',').map((o) => o.trim()).filter(Boolean);
+    return envOrigins
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean);
   }
   return DEFAULT_ORIGINS;
 }
@@ -94,10 +93,12 @@ export function createApp(deps: {
 
   // CORS – configurable via CORS_ORIGINS env var, with localhost dev defaults
   const allowedOrigins = parseCorsOrigins();
-  app.use(cors({
-    origin: allowedOrigins,
-    methods: ['GET', 'POST'],
-  }));
+  app.use(
+    cors({
+      origin: allowedOrigins,
+      methods: ['GET', 'POST'],
+    }),
+  );
 
   // JSON body parser (needed for POST /admin/crawl/start)
   app.use(express.json({ limit: '1mb' }));
@@ -116,7 +117,11 @@ export function createApp(deps: {
   app.use('/doc', docRouter(deps.store));
 
   // Admin routes – protected by Bearer token
-  app.use('/admin', adminAuth(), adminRouter(deps.indexManager, deps.metrics, deps.store, deps.redis));
+  app.use(
+    '/admin',
+    adminAuth(),
+    adminRouter(deps.indexManager, deps.metrics, deps.store, deps.redis),
+  );
 
   // 404 handler
   app.use((_req: Request, res: Response) => {
@@ -124,7 +129,6 @@ export function createApp(deps: {
   });
 
   // Centralized error handler
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     const message = err instanceof Error ? err.message : 'Internal server error';
     logger.error(err, 'Unhandled error');

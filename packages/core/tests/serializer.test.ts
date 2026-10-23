@@ -24,8 +24,20 @@ describe('serializer', () => {
 
   it('saves and loads an index with delta-encoded positions', async () => {
     const original = createIndex();
-    addDocument(original, 'doc1', 'distributed consensus protocol algorithm', 'Doc 1', 'http://example.com/1');
-    addDocument(original, 'doc2', 'search engine algorithm design', 'Doc 2', 'http://example.com/2');
+    addDocument(
+      original,
+      'doc1',
+      'distributed consensus protocol algorithm',
+      'Doc 1',
+      'http://example.com/1',
+    );
+    addDocument(
+      original,
+      'doc2',
+      'search engine algorithm design',
+      'Doc 2',
+      'http://example.com/2',
+    );
 
     await saveIndex(original, snapshotFile);
 

@@ -71,7 +71,7 @@ async function main() {
       lastDocs = stats.docs;
       console.log(
         `docs=${stats.docs} terms=${stats.terms} queue=${stats.queueSize}` +
-        ` pages/min=${stats.pagesPerMin} (+${delta} since last check)`,
+          ` pages/min=${stats.pagesPerMin} (+${delta} since last check)`,
       );
       if (stats.queueSize === 0 && stats.docs > 0) {
         console.log('Queue empty — crawl complete!');

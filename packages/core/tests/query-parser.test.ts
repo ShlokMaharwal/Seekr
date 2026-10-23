@@ -93,7 +93,7 @@ describe('phraseMatchesDoc()', () => {
     const docPositions = new Map([
       ['quick', [0, 5]],
       ['brown', [1, 8]],
-      ['fox',   [2, 12]],
+      ['fox', [2, 12]],
     ]);
     expect(phraseMatchesDoc(['quick', 'brown', 'fox'], docPositions)).toBe(true);
   });
@@ -144,8 +144,12 @@ describe('phraseMatchesDoc()', () => {
       expect(parsedWithStop.offsets).toEqual([0, 2]);
 
       // Matches docWithStopword, but NOT docAdjacent
-      expect(phraseMatchesDoc(parsedWithStop.tokens, docWithStopword, parsedWithStop.offsets)).toBe(true);
-      expect(phraseMatchesDoc(parsedWithStop.tokens, docAdjacent, parsedWithStop.offsets)).toBe(false);
+      expect(phraseMatchesDoc(parsedWithStop.tokens, docWithStopword, parsedWithStop.offsets)).toBe(
+        true,
+      );
+      expect(phraseMatchesDoc(parsedWithStop.tokens, docAdjacent, parsedWithStop.offsets)).toBe(
+        false,
+      );
     }
 
     // Phrase: "binary tree" -> terms: ['binari', 'tree'], offsets: [0, 1]
@@ -156,8 +160,12 @@ describe('phraseMatchesDoc()', () => {
       expect(parsedAdjacent.offsets).toEqual([0, 1]);
 
       // Matches docAdjacent, but NOT docWithStopword
-      expect(phraseMatchesDoc(parsedAdjacent.tokens, docAdjacent, parsedAdjacent.offsets)).toBe(true);
-      expect(phraseMatchesDoc(parsedAdjacent.tokens, docWithStopword, parsedAdjacent.offsets)).toBe(false);
+      expect(phraseMatchesDoc(parsedAdjacent.tokens, docAdjacent, parsedAdjacent.offsets)).toBe(
+        true,
+      );
+      expect(phraseMatchesDoc(parsedAdjacent.tokens, docWithStopword, parsedAdjacent.offsets)).toBe(
+        false,
+      );
     }
   });
 });

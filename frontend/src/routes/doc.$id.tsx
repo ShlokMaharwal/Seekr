@@ -1,8 +1,66 @@
-import { createFileRoute, Link } from '@tanstack/react-router';
-import { useSuspenseQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowUpRight } from 'lucide-react';
-import { docOptions } from '@/frontend/api';
-import { Failure } from '@/frontend/shell';
-import { Highlight } from '@/frontend/search-box';
-export const Route=createFileRoute('/doc/$id')({validateSearch:(s:Record<string,unknown>)=>({q:typeof s['q']==='string'?s['q']:''}),loader:({context,params})=>context.queryClient.ensureQueryData(docOptions(params.id)),head:({loaderData})=>({meta:[{title:`${loaderData?.title??'Indexed document'} — Seekr`},{name:'description',content:loaderData?.text.slice(0,150)??'Read an indexed document on Seekr.'},{property:'og:title',content:`${loaderData?.title??'Indexed document'} — Seekr`},{property:'og:description',content:'Explore cleaned page content and document metadata in the Seekr index.'},{property:'og:type',content:'article'},{name:'twitter:card',content:'summary_large_image'}]}),component:DocumentPage,errorComponent:({error,reset})=><Failure message={error instanceof Error?error.message:'This page could not be loaded.'} retry={reset}/>});
-function DocumentPage(){const {id}=Route.useParams();const {q}=Route.useSearch();const {data}=useSuspenseQuery(docOptions(id));return <article className="document-page"><Link to="/" search={{q,page:1,ranker:'bm25',compare:false}} className="document-back"><ArrowLeft size={14}/>Back to search</Link><div className="eyebrow">Indexed document / {data.id}</div><h1>{data.title}</h1><a className="doc-url" href={data.url} target="_blank" rel="noreferrer">{data.url}<ArrowUpRight size={14}/></a><div className="doc-meta"><span>Crawled {new Date(data.crawledAt).toLocaleString('en-GB',{timeZone:'UTC'})} UTC</span><span>{data.wordCount.toLocaleString()} words</span><span>Cleaned page text</span></div><div className="document-text"><Highlight text={data.text} q={q}/></div></article>}
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useSuspenseQuery } from "@tanstack/react-query";
+import { ArrowLeft, ArrowUpRight } from "lucide-react";
+import { docOptions } from "@/frontend/api";
+import { Failure } from "@/frontend/shell";
+import { Highlight } from "@/frontend/search-box";
+export const Route = createFileRoute("/doc/$id")({
+  validateSearch: (s: Record<string, unknown>) => ({ q: typeof s["q"] === "string" ? s["q"] : "" }),
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(docOptions(params.id)),
+  head: ({ loaderData }) => ({
+    meta: [
+      { title: `${loaderData?.title ?? "Indexed document"} — Seekr` },
+      {
+        name: "description",
+        content: loaderData?.text.slice(0, 150) ?? "Read an indexed document on Seekr.",
+      },
+      { property: "og:title", content: `${loaderData?.title ?? "Indexed document"} — Seekr` },
+      {
+        property: "og:description",
+        content: "Explore cleaned page content and document metadata in the Seekr index.",
+      },
+      { property: "og:type", content: "article" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
+  component: DocumentPage,
+  errorComponent: ({ error, reset }) => (
+    <Failure
+      message={error instanceof Error ? error.message : "This page could not be loaded."}
+      retry={reset}
+    />
+  ),
+});
+function DocumentPage() {
+  const { id } = Route.useParams();
+  const { q } = Route.useSearch();
+  const { data } = useSuspenseQuery(docOptions(id));
+  return (
+    <article className="document-page">
+      <Link
+        to="/"
+        search={{ q, page: 1, ranker: "bm25", compare: false }}
+        className="document-back"
+      >
+        <ArrowLeft size={14} />
+        Back to search
+      </Link>
+      <div className="eyebrow">Indexed document / {data.id}</div>
+      <h1>{data.title}</h1>
+      <a className="doc-url" href={data.url} target="_blank" rel="noreferrer">
+        {data.url}
+        <ArrowUpRight size={14} />
+      </a>
+      <div className="doc-meta">
+        <span>
+          Crawled {new Date(data.crawledAt).toLocaleString("en-GB", { timeZone: "UTC" })} UTC
+        </span>
+        <span>{data.wordCount.toLocaleString()} words</span>
+        <span>Cleaned page text</span>
+      </div>
+      <div className="document-text">
+        <Highlight text={data.text} q={q} />
+      </div>
+    </article>
+  );
+}

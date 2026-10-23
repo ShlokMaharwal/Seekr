@@ -27,7 +27,12 @@ export class QueryCache {
     return `${KEY_PREFIX}${ranker}:${page}:${limit}:${safe}`;
   }
 
-  async get(q: string, ranker: string, page: number, limit: number): Promise<SearchResponse | null> {
+  async get(
+    q: string,
+    ranker: string,
+    page: number,
+    limit: number,
+  ): Promise<SearchResponse | null> {
     const raw = await this.redis.get(this.key(q, ranker, page, limit));
     if (!raw) return null;
     try {

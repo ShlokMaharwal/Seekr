@@ -1,13 +1,476 @@
-import { useState, useEffect } from 'react';
-import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { ClientOnly } from '@tanstack/react-router';
-import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Activity, ArrowUpRight, Check, CirclePause, Database, FileText, Gauge, GitBranch, Layers, Pause, Play, RefreshCw, Square, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { api, feedOptions, getAdminToken, metricsOptions, setAdminToken, statsOptions, type CrawlSettings } from './api';
-export function validateCrawl(settings:CrawlSettings):string|null {if(!settings.seeds.length)return 'Add at least one seed URL.';if(settings.seeds.some(s=>{try{return !['http:','https:'].includes(new URL(s).protocol)}catch{return true}}))return 'Seed URLs must start with http:// or https://.';if(!Number.isInteger(settings.maxPages)||settings.maxPages<1)return 'Max pages must be a positive whole number.';if(!Number.isInteger(settings.delayMs)||settings.delayMs<0)return 'Delay must be zero or a positive whole number.';if(!Number.isInteger(settings.workers)||settings.workers<1)return 'Workers must be a positive whole number.';return null;}
-export function Dashboard(){const {data:stats}=useSuspenseQuery(statsOptions);const {data:feed}=useSuspenseQuery(feedOptions);const {data:metrics}=useSuspenseQuery(metricsOptions);const client=useQueryClient();const [state,setState]=useState<'stopped'|'running'|'paused'>('stopped');const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [seeds,setSeeds]=useState('https://en.wikipedia.org/wiki/Computer_science\nhttps://developer.mozilla.org');const [maxPages,setMaxPages]=useState(1000);const [delayMs,setDelayMs]=useState(1000);const [workers,setWorkers]=useState(4);const [token,setToken]=useState('');useEffect(()=>{setToken(getAdminToken())},[]);const saveToken=(v:string)=>{setToken(v);setAdminToken(v)};
- async function control(action:'start'|'pause'|'stop'){const settings={seeds:seeds.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean),maxPages,delayMs,workers};if(action==='start'){const invalid=validateCrawl(settings);if(invalid){setError(invalid);return}}setError('');setBusy(true);try{if(action==='start')await api.start(settings);else if(action==='pause')await api.pause();else await api.stop();setState(action==='start'?'running':action==='pause'?'paused':'stopped');await Promise.all([client.invalidateQueries({queryKey:['stats']}),client.invalidateQueries({queryKey:['feed']})]);}catch(e){setError(e instanceof Error?e.message:'The crawler could not be reached.')}finally{setBusy(false)}}
- const statItems=[{label:'Documents indexed',value:stats.docs.toLocaleString(),icon:FileText,foot:'Across the independent index'},{label:'Unique terms',value:stats.terms.toLocaleString(),icon:Layers,foot:'In the inverted index'},{label:'Index size',value:stats.indexSizeMb.toFixed(1),unit:'MB',icon:Database,foot:'Compressed & ready to search'},{label:'Crawl rate',value:stats.pagesPerMin,unit:'/ min',icon:Gauge,foot:state==='running'?'Crawler is actively indexing':'Crawler is currently idle'}];
- return <section className="dashboard-page"><div className="page-heading"><div><h1>Index overview<span className="brand-dot">.</span></h1><p>A pulse on your index, from the first crawl to the next query.</p></div><div className="header-right"><label className="admin-token-label" htmlFor="admin-token" style={{display:'flex',alignItems:'center',gap:8,fontSize:11,color:'var(--muted-foreground)'}}><span>Admin token</span><input className="field" id="admin-token" type="password" placeholder="Enter token…" value={token} onChange={e=>saveToken(e.target.value)} autoComplete="off" style={{width:160,height:30,fontSize:11}}/></label><span className="live-label"><i/>Live · every 2s</span></div></div><div className="stats-grid">{statItems.map(s=><article className="stat-card" key={s.label}><div className="stat-label">{s.label}<s.icon size={16}/></div><p className="stat-value">{s.value}{s.unit&&<small>{s.unit}</small>}</p><span className="stat-foot"><ArrowUpRight size={10}/>{s.foot}</span></article>)}</div><div className="dashboard-grid"><section><h2 className="section-heading">Crawler controls<GitBranch size={16}/></h2><form className="crawl-form" onSubmit={e=>{e.preventDefault();void control('start')}}><label htmlFor="seeds">Seed URLs</label><textarea className="field" id="seeds" value={seeds} onChange={e=>setSeeds(e.target.value)} disabled={state==='running'||busy}/><div className="form-row"><div><label htmlFor="max-pages">Max pages</label><input className="field" id="max-pages" type="number" min="1" value={maxPages} onChange={e=>setMaxPages(Number(e.target.value))} disabled={state==='running'||busy}/></div><div><label htmlFor="delay">Delay (ms)</label><input className="field" id="delay" type="number" min="0" value={delayMs} onChange={e=>setDelayMs(Number(e.target.value))} disabled={state==='running'||busy}/></div><div><label htmlFor="workers">Workers</label><input className="field" id="workers" type="number" min="1" value={workers} onChange={e=>setWorkers(Number(e.target.value))} disabled={state==='running'||busy}/></div></div><div className="crawl-actions"><Button type="submit" disabled={state==='running'||busy}><Play/>{busy?'Updating…':state==='paused'?'Resume crawl':'Start crawl'}</Button><Button type="button" variant="outline" disabled={state!=='running'||busy} onClick={()=>void control('pause')}><Pause/>Pause</Button><Button type="button" variant="outline" disabled={state==='stopped'||busy} onClick={()=>void control('stop')}><Square/>Stop</Button></div><p className="crawl-state" role="status">{state==='running'?'● Crawler running':state==='paused'?'Ⅱ Crawler paused':'○ Crawler idle'}</p>{error&&<p className="crawl-error" role="alert">{error}</p>}</form></section><section><h2 className="section-heading">Recent crawl activity<small>{feed.length} recent pages</small></h2><ul className="feed">{feed.map((f,i)=><li key={f.url+i}><div className={`feed-url status-${f.status}`} title={`${f.status}: ${f.url}`}>{f.status==='success'?<Check size={13}/>:f.status==='failed'?<X size={13}/>:f.status==='duplicate'?<Layers size={13}/>:<CirclePause size={13}/>}<span>{f.url}</span></div><span className={`feed-status status-${f.status}`}>{f.status}</span><time>{f.ts.slice(11,19)}</time></li>)}</ul></section></div><div className="chart-grid"><section><h2 className="section-heading">Pages crawled<small>Last 4 hours</small></h2><div className="chart-container"><ClientOnly fallback={<div className="skeleton-line"/>}><ResponsiveContainer width="100%" height="100%"><AreaChart data={metrics.crawlRate} margin={{top:10,right:5,left:-25,bottom:0}}><CartesianGrid stroke="var(--border)" vertical={false}/><XAxis dataKey="ts" stroke="var(--subtle)" axisLine={false} tickLine={false} minTickGap={25}/><YAxis stroke="var(--subtle)" axisLine={false} tickLine={false}/><Tooltip contentStyle={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:6,color:'var(--foreground)'}}/><Area dataKey="count" name="Pages" type="monotone" stroke="var(--primary)" fill="var(--accent-wash)" strokeWidth={2} isAnimationActive={false}/></AreaChart></ResponsiveContainer></ClientOnly></div></section><section><h2 className="section-heading">Query latency<div className="chart-legend"><span><i className="legend-primary"/>p50</span><span><i className="legend-secondary"/>p99</span><small>ms</small></div></h2><div className="chart-container"><ClientOnly fallback={<div className="skeleton-line"/>}><ResponsiveContainer width="100%" height="100%"><LineChart data={metrics.latency} margin={{top:10,right:5,left:-25,bottom:0}}><CartesianGrid stroke="var(--border)" vertical={false}/><XAxis dataKey="ts" stroke="var(--subtle)" axisLine={false} tickLine={false} minTickGap={25}/><YAxis stroke="var(--subtle)" axisLine={false} tickLine={false}/><Tooltip contentStyle={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:6,color:'var(--foreground)'}}/><Line dataKey="p50" name="p50 (ms)" type="monotone" stroke="var(--primary)" dot={false} strokeWidth={2} isAnimationActive={false}/><Line dataKey="p99" name="p99 (ms)" type="monotone" stroke="var(--chart-secondary)" dot={false} strokeWidth={2} isAnimationActive={false}/></LineChart></ResponsiveContainer></ClientOnly></div></section></div><div className="health-grid"><section><h2 className="section-heading">Top searched queries<small>Last 24 hours</small></h2><div className="query-list">{metrics.topQueries.map((item,i)=><div className="query-row" key={item.q}><span>{String(i+1).padStart(2,'0')}</span><p>{item.q}</p><strong>{item.count.toLocaleString()}</strong></div>)}</div></section><section><h2 className="section-heading">Index health<Activity size={16}/></h2><div className="health-row"><span><GitBranch size={14}/>URL frontier</span><strong>{stats.queueSize.toLocaleString()}</strong></div><div className="health-row"><span><RefreshCw size={14}/>Duplicates skipped</span><strong>{stats.duplicates.toLocaleString()}</strong></div><div className="health-row"><span><X size={14}/>Failed fetches</span><strong>{stats.failures.toLocaleString()}</strong></div></section></div></section>;
+import { useState, useEffect } from "react";
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { ClientOnly } from "@tanstack/react-router";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  Activity,
+  ArrowUpRight,
+  Check,
+  CirclePause,
+  Database,
+  FileText,
+  Gauge,
+  GitBranch,
+  Layers,
+  Pause,
+  Play,
+  RefreshCw,
+  Square,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  api,
+  feedOptions,
+  getAdminToken,
+  metricsOptions,
+  setAdminToken,
+  statsOptions,
+  type CrawlSettings,
+} from "./api";
+export function validateCrawl(settings: CrawlSettings): string | null {
+  if (!settings.seeds.length) return "Add at least one seed URL.";
+  if (
+    settings.seeds.some((s) => {
+      try {
+        return !["http:", "https:"].includes(new URL(s).protocol);
+      } catch {
+        return true;
+      }
+    })
+  )
+    return "Seed URLs must start with http:// or https://.";
+  if (!Number.isInteger(settings.maxPages) || settings.maxPages < 1)
+    return "Max pages must be a positive whole number.";
+  if (!Number.isInteger(settings.delayMs) || settings.delayMs < 0)
+    return "Delay must be zero or a positive whole number.";
+  if (!Number.isInteger(settings.workers) || settings.workers < 1)
+    return "Workers must be a positive whole number.";
+  return null;
+}
+export function Dashboard() {
+  const { data: stats } = useSuspenseQuery(statsOptions);
+  const { data: feed } = useSuspenseQuery(feedOptions);
+  const { data: metrics } = useSuspenseQuery(metricsOptions);
+  const client = useQueryClient();
+  const [state, setState] = useState<"stopped" | "running" | "paused">("stopped");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [seeds, setSeeds] = useState(
+    "https://en.wikipedia.org/wiki/Computer_science\nhttps://developer.mozilla.org",
+  );
+  const [maxPages, setMaxPages] = useState(1000);
+  const [delayMs, setDelayMs] = useState(1000);
+  const [workers, setWorkers] = useState(4);
+  const [token, setToken] = useState("");
+  useEffect(() => {
+    setToken(getAdminToken());
+  }, []);
+  const saveToken = (v: string) => {
+    setToken(v);
+    setAdminToken(v);
+  };
+  async function control(action: "start" | "pause" | "stop") {
+    const settings = {
+      seeds: seeds
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+      maxPages,
+      delayMs,
+      workers,
+    };
+    if (action === "start") {
+      const invalid = validateCrawl(settings);
+      if (invalid) {
+        setError(invalid);
+        return;
+      }
+    }
+    setError("");
+    setBusy(true);
+    try {
+      if (action === "start") await api.start(settings);
+      else if (action === "pause") await api.pause();
+      else await api.stop();
+      setState(action === "start" ? "running" : action === "pause" ? "paused" : "stopped");
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["stats"] }),
+        client.invalidateQueries({ queryKey: ["feed"] }),
+      ]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The crawler could not be reached.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const statItems = [
+    {
+      label: "Documents indexed",
+      value: stats.docs.toLocaleString(),
+      icon: FileText,
+      foot: "Across the independent index",
+    },
+    {
+      label: "Unique terms",
+      value: stats.terms.toLocaleString(),
+      icon: Layers,
+      foot: "In the inverted index",
+    },
+    {
+      label: "Index size",
+      value: stats.indexSizeMb.toFixed(1),
+      unit: "MB",
+      icon: Database,
+      foot: "Compressed & ready to search",
+    },
+    {
+      label: "Crawl rate",
+      value: stats.pagesPerMin,
+      unit: "/ min",
+      icon: Gauge,
+      foot: state === "running" ? "Crawler is actively indexing" : "Crawler is currently idle",
+    },
+  ];
+  return (
+    <section className="dashboard-page">
+      <div className="page-heading">
+        <div>
+          <h1>
+            Index overview<span className="brand-dot">.</span>
+          </h1>
+          <p>A pulse on your index, from the first crawl to the next query.</p>
+        </div>
+        <div className="header-right">
+          <label
+            className="admin-token-label"
+            htmlFor="admin-token"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 11,
+              color: "var(--muted-foreground)",
+            }}
+          >
+            <span>Admin token</span>
+            <input
+              className="field"
+              id="admin-token"
+              type="password"
+              placeholder="Enter token…"
+              value={token}
+              onChange={(e) => saveToken(e.target.value)}
+              autoComplete="off"
+              style={{ width: 160, height: 30, fontSize: 11 }}
+            />
+          </label>
+          <span className="live-label">
+            <i />
+            Live · every 2s
+          </span>
+        </div>
+      </div>
+      <div className="stats-grid">
+        {statItems.map((s) => (
+          <article className="stat-card" key={s.label}>
+            <div className="stat-label">
+              {s.label}
+              <s.icon size={16} />
+            </div>
+            <p className="stat-value">
+              {s.value}
+              {s.unit && <small>{s.unit}</small>}
+            </p>
+            <span className="stat-foot">
+              <ArrowUpRight size={10} />
+              {s.foot}
+            </span>
+          </article>
+        ))}
+      </div>
+      <div className="dashboard-grid">
+        <section>
+          <h2 className="section-heading">
+            Crawler controls
+            <GitBranch size={16} />
+          </h2>
+          <form
+            className="crawl-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void control("start");
+            }}
+          >
+            <label htmlFor="seeds">Seed URLs</label>
+            <textarea
+              className="field"
+              id="seeds"
+              value={seeds}
+              onChange={(e) => setSeeds(e.target.value)}
+              disabled={state === "running" || busy}
+            />
+            <div className="form-row">
+              <div>
+                <label htmlFor="max-pages">Max pages</label>
+                <input
+                  className="field"
+                  id="max-pages"
+                  type="number"
+                  min="1"
+                  value={maxPages}
+                  onChange={(e) => setMaxPages(Number(e.target.value))}
+                  disabled={state === "running" || busy}
+                />
+              </div>
+              <div>
+                <label htmlFor="delay">Delay (ms)</label>
+                <input
+                  className="field"
+                  id="delay"
+                  type="number"
+                  min="0"
+                  value={delayMs}
+                  onChange={(e) => setDelayMs(Number(e.target.value))}
+                  disabled={state === "running" || busy}
+                />
+              </div>
+              <div>
+                <label htmlFor="workers">Workers</label>
+                <input
+                  className="field"
+                  id="workers"
+                  type="number"
+                  min="1"
+                  value={workers}
+                  onChange={(e) => setWorkers(Number(e.target.value))}
+                  disabled={state === "running" || busy}
+                />
+              </div>
+            </div>
+            <div className="crawl-actions">
+              <Button type="submit" disabled={state === "running" || busy}>
+                <Play />
+                {busy ? "Updating…" : state === "paused" ? "Resume crawl" : "Start crawl"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={state !== "running" || busy}
+                onClick={() => void control("pause")}
+              >
+                <Pause />
+                Pause
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={state === "stopped" || busy}
+                onClick={() => void control("stop")}
+              >
+                <Square />
+                Stop
+              </Button>
+            </div>
+            <p className="crawl-state" role="status">
+              {state === "running"
+                ? "● Crawler running"
+                : state === "paused"
+                  ? "Ⅱ Crawler paused"
+                  : "○ Crawler idle"}
+            </p>
+            {error && (
+              <p className="crawl-error" role="alert">
+                {error}
+              </p>
+            )}
+          </form>
+        </section>
+        <section>
+          <h2 className="section-heading">
+            Recent crawl activity<small>{feed.length} recent pages</small>
+          </h2>
+          <ul className="feed">
+            {feed.map((f, i) => (
+              <li key={f.url + i}>
+                <div className={`feed-url status-${f.status}`} title={`${f.status}: ${f.url}`}>
+                  {f.status === "success" ? (
+                    <Check size={13} />
+                  ) : f.status === "failed" ? (
+                    <X size={13} />
+                  ) : f.status === "duplicate" ? (
+                    <Layers size={13} />
+                  ) : (
+                    <CirclePause size={13} />
+                  )}
+                  <span>{f.url}</span>
+                </div>
+                <span className={`feed-status status-${f.status}`}>{f.status}</span>
+                <time>{f.ts.slice(11, 19)}</time>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+      <div className="chart-grid">
+        <section>
+          <h2 className="section-heading">
+            Pages crawled<small>Last 4 hours</small>
+          </h2>
+          <div className="chart-container">
+            <ClientOnly fallback={<div className="skeleton-line" />}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={metrics.crawlRate}
+                  margin={{ top: 10, right: 5, left: -25, bottom: 0 }}
+                >
+                  <CartesianGrid stroke="var(--border)" vertical={false} />
+                  <XAxis
+                    dataKey="ts"
+                    stroke="var(--subtle)"
+                    axisLine={false}
+                    tickLine={false}
+                    minTickGap={25}
+                  />
+                  <YAxis stroke="var(--subtle)" axisLine={false} tickLine={false} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--card)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      color: "var(--foreground)",
+                    }}
+                  />
+                  <Area
+                    dataKey="count"
+                    name="Pages"
+                    type="monotone"
+                    stroke="var(--primary)"
+                    fill="var(--accent-wash)"
+                    strokeWidth={2}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </ClientOnly>
+          </div>
+        </section>
+        <section>
+          <h2 className="section-heading">
+            Query latency
+            <div className="chart-legend">
+              <span>
+                <i className="legend-primary" />
+                p50
+              </span>
+              <span>
+                <i className="legend-secondary" />
+                p99
+              </span>
+              <small>ms</small>
+            </div>
+          </h2>
+          <div className="chart-container">
+            <ClientOnly fallback={<div className="skeleton-line" />}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={metrics.latency}
+                  margin={{ top: 10, right: 5, left: -25, bottom: 0 }}
+                >
+                  <CartesianGrid stroke="var(--border)" vertical={false} />
+                  <XAxis
+                    dataKey="ts"
+                    stroke="var(--subtle)"
+                    axisLine={false}
+                    tickLine={false}
+                    minTickGap={25}
+                  />
+                  <YAxis stroke="var(--subtle)" axisLine={false} tickLine={false} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--card)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      color: "var(--foreground)",
+                    }}
+                  />
+                  <Line
+                    dataKey="p50"
+                    name="p50 (ms)"
+                    type="monotone"
+                    stroke="var(--primary)"
+                    dot={false}
+                    strokeWidth={2}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    dataKey="p99"
+                    name="p99 (ms)"
+                    type="monotone"
+                    stroke="var(--chart-secondary)"
+                    dot={false}
+                    strokeWidth={2}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </ClientOnly>
+          </div>
+        </section>
+      </div>
+      <div className="health-grid">
+        <section>
+          <h2 className="section-heading">
+            Top searched queries<small>Last 24 hours</small>
+          </h2>
+          <div className="query-list">
+            {metrics.topQueries.map((item, i) => (
+              <div className="query-row" key={item.q}>
+                <span>{String(i + 1).padStart(2, "0")}</span>
+                <p>{item.q}</p>
+                <strong>{item.count.toLocaleString()}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section>
+          <h2 className="section-heading">
+            Index health
+            <Activity size={16} />
+          </h2>
+          <div className="health-row">
+            <span>
+              <GitBranch size={14} />
+              URL frontier
+            </span>
+            <strong>{stats.queueSize.toLocaleString()}</strong>
+          </div>
+          <div className="health-row">
+            <span>
+              <RefreshCw size={14} />
+              Duplicates skipped
+            </span>
+            <strong>{stats.duplicates.toLocaleString()}</strong>
+          </div>
+          <div className="health-row">
+            <span>
+              <X size={14} />
+              Failed fetches
+            </span>
+            <strong>{stats.failures.toLocaleString()}</strong>
+          </div>
+        </section>
+      </div>
+    </section>
+  );
 }

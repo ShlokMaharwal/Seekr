@@ -61,13 +61,15 @@ export type { TypoCandidate, BigramIndex } from './typo.js';
 export { generateSnippet } from './snippet.js';
 
 // Serialization
-export { saveIndex, loadIndex, loadOrCreate, encodeIndex, decodeIndex, encodeLegacyIndex } from './serializer.js';
+export {
+  saveIndex,
+  loadIndex,
+  loadOrCreate,
+  encodeIndex,
+  decodeIndex,
+  encodeLegacyIndex,
+} from './serializer.js';
 
 // Search engine facade
 export { search } from './search-engine.js';
-export type {
-  RankerType,
-  SearchOptions,
-  SearchResultItem,
-  SearchResult,
-} from './search-engine.js';
+export type { RankerType, SearchOptions, SearchResultItem, SearchResult } from './search-engine.js';

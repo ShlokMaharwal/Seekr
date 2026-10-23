@@ -26,8 +26,20 @@ export interface ParseResult {
 }
 
 // Tags to remove entirely before extracting text
-const NOISE_TAGS = ['script', 'style', 'nav', 'header', 'footer', 'aside',
-  'form', 'button', 'iframe', 'noscript', 'svg', 'figure'];
+const NOISE_TAGS = [
+  'script',
+  'style',
+  'nav',
+  'header',
+  'footer',
+  'aside',
+  'form',
+  'button',
+  'iframe',
+  'noscript',
+  'svg',
+  'figure',
+];
 
 /**
  * Parse an HTML page and extract structured data.
@@ -50,11 +62,7 @@ export function parseHtml(
   $('[aria-hidden="true"]').remove();
 
   // Extract title
-  const title =
-    $('title').first().text().trim() ||
-    $('h1').first().text().trim() ||
-    base.hostname;
-
+  const title = $('title').first().text().trim() || $('h1').first().text().trim() || base.hostname;
 
   // Find the main content area, falling back when an element is absent.
   let contentEl = $('main').first();
@@ -75,7 +83,6 @@ export function parseHtml(
 
   // Collapse whitespace
   const text = rawText.replace(/\s+/g, ' ').trim();
-
 
   // Content hash for deduplication
   const normalized = text.toLowerCase();

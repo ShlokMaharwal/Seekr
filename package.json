@@ -2,7 +2,9 @@
   "name": "seekr",
   "version": "1.0.0",
   "private": true,
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -13,7 +15,23 @@
     "dev:api": "npm run dev -w apps/api",
     "dev:crawler": "npm run dev -w apps/crawler",
     "dev:frontend": "npm run dev --prefix frontend",
-    "lint": "tsc --noEmit --project tsconfig.json"
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:coverage": "npm run test:coverage -w packages/core",
+    "test:frontend": "npm test --prefix frontend -- --maxWorkers=1",
+    "build:frontend": "npm run build --prefix frontend",
+    "test:e2e": "node scripts/e2e.mjs"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.12",
+    "@vitest/coverage-v8": "^4.1.12",
+    "@eslint/js": "^9.39.5",
+    "@types/supertest": "^6.0.3",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0",
+    "prettier": "^3.9.10",
+    "supertest": "^7.3.1",
+    "typescript-eslint": "^8.72.0"
   }
 }
-

@@ -11,7 +11,7 @@
  * Corpus-level stats (N, avgDocLen) are updated incrementally on each add/remove.
  */
 
-import { type DocMeta, type InvertedIndex, type Posting } from './types.js';
+import { type InvertedIndex, type Posting } from './types.js';
 import { tokenize } from './tokenizer.js';
 
 // ---------------------------------------------------------------------------
@@ -78,11 +78,13 @@ export function addDocument(
   const titleTerms = new Map<string, number[]>();
   for (const token of titleTokens) {
     const positions = titleTerms.get(token.term) ?? [];
-    positions.push(token.position); titleTerms.set(token.term, positions);
+    positions.push(token.position);
+    titleTerms.set(token.term, positions);
   }
   for (const [term, positions] of titleTerms) {
     const list = index.titlePostings.get(term) ?? [];
-    list.push({ docId, tf: positions.length, positions }); index.titlePostings.set(term, list);
+    list.push({ docId, tf: positions.length, positions });
+    index.titlePostings.set(term, list);
   }
   const prevTitleTotal = Math.round(index.N * index.avgTitleLen);
   index.avgTitleLen = (prevTitleTotal + titleTokens.length) / (index.N + 1);
@@ -109,7 +111,7 @@ export function removeDocument(index: InvertedIndex, docId: string): void {
   index.avgDocLen = index.N > 0 ? (prevTotal - meta.length) / index.N : 0;
   index.docs.delete(docId);
   for (const [term, list] of index.titlePostings) {
-    const remaining = list.filter(p => p.docId !== docId);
+    const remaining = list.filter((p) => p.docId !== docId);
     if (remaining.length) index.titlePostings.set(term, remaining);
     else index.titlePostings.delete(term);
   }

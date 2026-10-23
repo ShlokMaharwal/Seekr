@@ -22,13 +22,13 @@ import { type Redis } from 'ioredis';
 import { logger } from './logger.js';
 
 // Key names
-const K_DOMAINS = 'frontier:domains';          // ZSET: domain → next-allowed ts
-const K_SEEN = 'frontier:seen';                // SET:  url hashes
-const K_STATS_QUEUE = 'stats:queueSize';      // STRING: total pending URLs
-const K_STATS_DUPS = 'stats:duplicates';      // STRING: duplicate count
-const K_STATS_FAIL = 'stats:failures';        // STRING: failure count
-const K_CRAWL_RATE = 'stats:crawlRate';       // ZSET: ts → count (sorted by ts)
-const K_FEED = 'feed:events';                 // LIST: recent crawl events (capped)
+const K_DOMAINS = 'frontier:domains'; // ZSET: domain → next-allowed ts
+const K_SEEN = 'frontier:seen'; // SET:  url hashes
+const K_STATS_QUEUE = 'stats:queueSize'; // STRING: total pending URLs
+const K_STATS_DUPS = 'stats:duplicates'; // STRING: duplicate count
+const K_STATS_FAIL = 'stats:failures'; // STRING: failure count
+const K_CRAWL_RATE = 'stats:crawlRate'; // ZSET: ts → count (sorted by ts)
+const K_FEED = 'feed:events'; // LIST: recent crawl events (capped)
 
 const FEED_MAX_LEN = 200;
 
@@ -115,14 +115,23 @@ export class UrlFrontier {
     const hash = urlHash(url);
 
     // SADD returns 1 if the element was new, 0 if already present
-    const added = await this.redis.eval(`
+    const added = await this.redis.eval(
+      `
       if redis.call('SADD', KEYS[1], ARGV[1]) == 0 then return 0 end
       redis.call('RPUSH', KEYS[2], ARGV[2])
       local next = redis.call('HGET', 'frontier:next', ARGV[3]) or 0
       redis.call('ZADD', KEYS[3], 'NX', next, ARGV[3])
       redis.call('INCR', 'stats:queueSize')
       return 1
-    `, 3, K_SEEN, domainKey(domain), K_DOMAINS, hash, url, domain);
+    `,
+      3,
+      K_SEEN,
+      domainKey(domain),
+      K_DOMAINS,
+      hash,
+      url,
+      domain,
+    );
     if (added === 0) {
       await this.redis.incr(K_STATS_DUPS);
       return false;
@@ -139,17 +148,19 @@ export class UrlFrontier {
     const now = Date.now();
     const nextTs = now + this.delayMs;
 
-    const result = (await this.redis.eval(
+    const result: unknown = await this.redis.eval(
       this.script,
       2,
       K_DOMAINS,
       processingKey(workerId),
       String(now),
       String(nextTs),
-    )) as [string, string] | null;
+    );
 
     if (result == null) return null;
-    return { domain: result[0] as string, url: result[1] as string };
+    if (!Array.isArray(result) || typeof result[0] !== 'string' || typeof result[1] !== 'string')
+      throw new Error('Invalid frontier response');
+    return { domain: result[0], url: result[1] };
   }
 
   /**
@@ -190,11 +201,18 @@ export class UrlFrontier {
         for (const raw of staleMembers) {
           try {
             const legacy: unknown = raw.startsWith('{') ? JSON.parse(raw) : null;
-            const url = legacy && typeof legacy === 'object' && 'url' in legacy && typeof legacy.url === 'string' ? legacy.url : raw;
+            const url =
+              legacy &&
+              typeof legacy === 'object' &&
+              'url' in legacy &&
+              typeof legacy.url === 'string'
+                ? legacy.url
+                : raw;
             const domain = new URL(url).hostname;
             // Claim and requeue in ONE operation: competing reapers must not
             // insert the same stale URL twice, or race a renewed lease.
-            const claimed = await this.redis.eval(`
+            const claimed = await this.redis.eval(
+              `
               local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
               if not score or tonumber(score) > tonumber(ARGV[2]) then return 0 end
               redis.call('ZREM', KEYS[1], ARGV[1])
@@ -202,7 +220,16 @@ export class UrlFrontier {
               redis.call('ZADD', KEYS[3], 'NX', 0, ARGV[4])
               redis.call('INCR', 'stats:queueSize')
               return 1
-            `, 3, pKey, domainKey(domain), K_DOMAINS, raw, cutoff, url, domain);
+            `,
+              3,
+              pKey,
+              domainKey(domain),
+              K_DOMAINS,
+              raw,
+              cutoff,
+              url,
+              domain,
+            );
             if (claimed === 1) reapedCount++;
           } catch {
             await this.redis.zrem(pKey, raw);

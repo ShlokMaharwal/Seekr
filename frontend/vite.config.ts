@@ -7,7 +7,7 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
-  nitro: { preset: 'node-server' },
+  nitro: { preset: "node-server" },
   vite: {
     server: {
       port: 5173,

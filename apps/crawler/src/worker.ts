@@ -1,4 +1,3 @@
-
 /**
  * Crawler Worker
  *
@@ -46,12 +45,8 @@ export class CrawlerWorker {
 
   constructor(config: CrawlerConfig = {}) {
     this.config = {
-      redisUrl:
-        config.redisUrl ??
-        (process.env['REDIS_URL'] ?? 'redis://localhost:6379'),
-      mongoUrl:
-        config.mongoUrl ??
-        (process.env['MONGO_URL'] ?? 'mongodb://localhost:27017'),
+      redisUrl: config.redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379',
+      mongoUrl: config.mongoUrl ?? process.env['MONGO_URL'] ?? 'mongodb://localhost:27017',
       concurrency: Math.max(1, config.concurrency ?? 5),
       delayMs: config.delayMs ?? 500,
       maxPages: config.maxPages ?? Infinity,
@@ -84,10 +79,7 @@ export class CrawlerWorker {
     this.activeCount = 0;
     this.idleSince = null;
 
-    logger.info(
-      { config: this.config },
-      'Crawler worker starting',
-    );
+    logger.info({ config: this.config }, 'Crawler worker starting');
 
     // Initial pass to recover any stale/abandoned URLs before starting
     await this.frontier.reapStale(60_000).catch(() => {});
@@ -99,9 +91,8 @@ export class CrawlerWorker {
       });
     }, 15_000);
 
-    const workers = Array.from(
-      { length: this.config.concurrency },
-      (_, index) => this.runLoop(index),
+    const workers = Array.from({ length: this.config.concurrency }, (_, index) =>
+      this.runLoop(index),
     );
 
     try {
@@ -113,10 +104,7 @@ export class CrawlerWorker {
       await this.closeResources();
     }
 
-    logger.info(
-      { crawledCount: this.crawledCount },
-      'Crawler worker finished',
-    );
+    logger.info({ crawledCount: this.crawledCount }, 'Crawler worker finished');
   }
 
   pause(): void {
@@ -151,17 +139,11 @@ export class CrawlerWorker {
   }
 
   private async closeResources(): Promise<void> {
-    const results = await Promise.allSettled([
-      this.store.close(),
-      this.redis.quit(),
-    ]);
+    const results = await Promise.allSettled([this.store.close(), this.redis.quit()]);
 
     for (const result of results) {
       if (result.status === 'rejected') {
-        logger.warn(
-          { err: result.reason },
-          'Error while closing crawler resource',
-        );
+        logger.warn({ err: result.reason }, 'Error while closing crawler resource');
       }
     }
   }
@@ -191,10 +173,7 @@ export class CrawlerWorker {
           break;
         }
 
-        logger.error(
-          { workerIndex, workerId, err },
-          'Failed to dequeue URL',
-        );
+        logger.error({ workerIndex, workerId, err }, 'Failed to dequeue URL');
 
         await sleep(500);
         continue;
@@ -210,9 +189,7 @@ export class CrawlerWorker {
         if (this.activeCount === 0) {
           if (this.idleSince === null) {
             this.idleSince = Date.now();
-          } else if (
-            Date.now() - this.idleSince >= idleTimeoutMs
-          ) {
+          } else if (Date.now() - this.idleSince >= idleTimeoutMs) {
             this.running = false;
             break;
           }
@@ -225,7 +202,9 @@ export class CrawlerWorker {
       this.idleSince = null;
       this.activeCount++;
       const leaseTimer = setInterval(() => {
-        this.frontier.renew(workerId, next.url).catch((err: unknown) => logger.warn({ err }, 'Lease renewal failed'));
+        this.frontier
+          .renew(workerId, next.url)
+          .catch((err: unknown) => logger.warn({ err }, 'Lease renewal failed'));
       }, 10_000);
 
       try {
@@ -239,17 +218,17 @@ export class CrawlerWorker {
         try {
           await this.frontier.recordEvent(next.url, 'failed');
         } catch (recordErr) {
-          logger.warn(
-            { url: next.url, err: recordErr },
-            'Failed to record crawl error',
-          );
+          logger.warn({ url: next.url, err: recordErr }, 'Failed to record crawl error');
         }
       } finally {
         clearInterval(leaseTimer);
         try {
           await this.frontier.complete(workerId, next.url, next.domain);
         } catch (completeErr) {
-          logger.warn({ url: next.url, err: completeErr }, 'Failed to remove URL from processing queue');
+          logger.warn(
+            { url: next.url, err: completeErr },
+            'Failed to remove URL from processing queue',
+          );
         }
         this.activeCount--;
         this.crawledCount++;
@@ -271,29 +250,26 @@ export class CrawlerWorker {
 
       const { html, url: finalUrl } = await fetchUrl(url);
 
-      const parsed = parseHtml(
-        html,
-        finalUrl,
-        this.config.allowedPrefixes,
-      );
+      const parsed = parseHtml(html, finalUrl, this.config.allowedPrefixes);
 
       if (!parsed.text.trim()) {
-        logger.warn(
-          { url, title: parsed.title },
-          'Page contained no extractable text',
-        );
+        logger.warn({ url, title: parsed.title }, 'Page contained no extractable text');
       }
 
       // Suppress content that already exists in the document store.
       const threshold = Number(process.env['SIMHASH_MAX_DISTANCE'] ?? 3);
-      if (!Number.isInteger(threshold) || threshold < -1 || threshold > 3) throw new Error('SIMHASH_MAX_DISTANCE must be -1..3');
+      if (!Number.isInteger(threshold) || threshold < -1 || threshold > 3)
+        throw new Error('SIMHASH_MAX_DISTANCE must be -1..3');
       // Discover links even when the page itself is a duplicate.
       for (const link of parsed.links) {
         if (!this.running || this.stopRequested) break;
         await this.frontier.enqueue(link, extractDomain(link));
       }
-      if (await this.store.existsByContentHash(parsed.contentHash) ||
-          (parsed.text.split(/\s+/).length >= 20 && await this.store.hasNearDuplicate(parsed.simHash, url, threshold))) {
+      if (
+        (await this.store.existsByContentHash(parsed.contentHash)) ||
+        (parsed.text.split(/\s+/).length >= 20 &&
+          (await this.store.hasNearDuplicate(parsed.simHash, url, threshold)))
+      ) {
         await this.frontier.recordEvent(url, 'duplicate');
 
         logger.info(
@@ -305,9 +281,7 @@ export class CrawlerWorker {
       }
 
       const id = urlId(url);
-      const wordCount = parsed.text
-        .split(/\s+/)
-        .filter(Boolean).length;
+      const wordCount = parsed.text.split(/\s+/).filter(Boolean).length;
 
       const doc = {
         id,
@@ -328,28 +302,27 @@ export class CrawlerWorker {
       await this.redis.xadd(
         INDEXER_STREAM,
         '*',
-        'id', id,
-        'url', url,
-        'title', parsed.title,
-        'text', parsed.text,
-        'crawledAt', doc.crawledAt,
-        'wordCount', String(wordCount),
+        'id',
+        id,
+        'url',
+        url,
+        'title',
+        parsed.title,
+        'text',
+        parsed.text,
+        'crawledAt',
+        doc.crawledAt,
+        'wordCount',
+        String(wordCount),
       );
 
       await this.frontier.recordEvent(url, 'success');
 
-      logger.info(
-        { url, wordCount, isNew },
-        'Page crawled',
-      );
-
+      logger.info({ url, wordCount, isNew }, 'Page crawled');
     } catch (err) {
       await this.frontier.recordEvent(url, 'failed');
 
-      logger.warn(
-        { url, err },
-        'Crawl failed',
-      );
+      logger.warn({ url, err }, 'Crawl failed');
     }
   }
 }

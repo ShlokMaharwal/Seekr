@@ -1,0 +1,15 @@
+node_modules/
+**/node_modules/
+**/dist/
+**/.output/
+**/.nitro/
+**/.wrangler/
+**/.tanstack/
+**/coverage/
+data/
+package-lock.json
+frontend/package-lock.json
+frontend/bun.lock
+frontend/src/routeTree.gen.ts
+docs/ARCHITECTURE.md
+docs/DESIGN_DECISIONS.md

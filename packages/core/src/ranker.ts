@@ -107,9 +107,7 @@ export function scoreBM25(
       // - (1 - b + b * (|d| / avgdl)) modulates how heavily document length penalizes the score.
       // - When |d| == avgdl, the length multiplier is exactly 1.
       // - Higher k1 increases the score boost from multiple occurrences before reaching saturation.
-      const tfNorm =
-        (tf * (k1 + 1)) /
-        (tf + k1 * (1 - b + b * (docLen / safeAvgDocLen)));
+      const tfNorm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (docLen / safeAvgDocLen)));
 
       scores.set(docId, (scores.get(docId) ?? 0) + idf * tfNorm);
     }
@@ -124,21 +122,29 @@ export function scoreBM25(
 
 /** BM25F normalizes each field, combines weighted frequencies, and saturates
  * once. Independent field saturation would double-count term evidence. */
-export function scoreBM25F(index: InvertedIndex, queryTerms: string[], k = 10,
-  { k1 = 1.2, b = 0.75, titleWeight = 2 }: BM25Options = {}, allowed?: ReadonlySet<string>): RankedResult[] {
+export function scoreBM25F(
+  index: InvertedIndex,
+  queryTerms: string[],
+  k = 10,
+  { k1 = 1.2, b = 0.75, titleWeight = 2 }: BM25Options = {},
+  allowed?: ReadonlySet<string>,
+): RankedResult[] {
   const scores = new Map<string, number>();
   for (const term of queryTerms) {
-    const byId = new Map(getPostings(index, term).map(p => [p.docId, p.tf]));
-    const titleById = new Map((index.titlePostings.get(term) ?? []).map(p => [p.docId, p.tf]));
+    const byId = new Map(getPostings(index, term).map((p) => [p.docId, p.tf]));
+    const titleById = new Map((index.titlePostings.get(term) ?? []).map((p) => [p.docId, p.tf]));
     const ids = new Set([...byId.keys(), ...(titleWeight > 0 ? titleById.keys() : [])]);
     const idf = Math.log(1 + (index.N - ids.size + 0.5) / (ids.size + 0.5));
     for (const id of ids) {
       if (allowed && !allowed.has(id)) continue;
-      const doc = index.docs.get(id); if (!doc) continue;
-      const bodyNorm = 1 - b + b * doc.length / (index.avgDocLen || 1);
-      const titleNorm = 1 - b + b * (doc.titleLength ?? 0) / (index.avgTitleLen || 1);
-      const tf = (byId.get(id) ?? 0) / (bodyNorm || 1) + titleWeight * (titleById.get(id) ?? 0) / (titleNorm || 1);
-      scores.set(id, (scores.get(id) ?? 0) + idf * tf * (k1 + 1) / (k1 + tf));
+      const doc = index.docs.get(id);
+      if (!doc) continue;
+      const bodyNorm = 1 - b + (b * doc.length) / (index.avgDocLen || 1);
+      const titleNorm = 1 - b + (b * (doc.titleLength ?? 0)) / (index.avgTitleLen || 1);
+      const tf =
+        (byId.get(id) ?? 0) / (bodyNorm || 1) +
+        (titleWeight * (titleById.get(id) ?? 0)) / (titleNorm || 1);
+      scores.set(id, (scores.get(id) ?? 0) + (idf * tf * (k1 + 1)) / (k1 + tf));
     }
   }
   return collectTopK(scores, k);

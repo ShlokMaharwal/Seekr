@@ -29,14 +29,14 @@ npm test
 
 ## Project structure
 
-| Directory         | Description                           |
-|-------------------|---------------------------------------|
-| `packages/core`   | Pure algorithms (index, ranker, trie) |
-| `apps/api`        | Express API server                    |
-| `apps/crawler`    | Distributed crawler workers           |
-| `frontend`        | React frontend (TanStack Start)       |
-| `bench`           | Benchmarks                            |
-| `scripts`         | Utility scripts (seed, etc.)          |
+| Directory       | Description                           |
+| --------------- | ------------------------------------- |
+| `packages/core` | Pure algorithms (index, ranker, trie) |
+| `apps/api`      | Express API server                    |
+| `apps/crawler`  | Distributed crawler workers           |
+| `frontend`      | React frontend (TanStack Start)       |
+| `bench`         | Benchmarks                            |
+| `scripts`       | Utility scripts (seed, etc.)          |
 
 ## Running tests
 

@@ -59,9 +59,7 @@ export class MetricsTracker {
   /** Returns latency p50 and p99 bucketed by minute over the last hour. */
   async getLatencyBuckets(): Promise<Array<{ ts: string; p50: number; p99: number }>> {
     const now = Date.now();
-    const members = await this.redis.zrangebyscore(
-      K_LATENCY, now - WINDOW_MS, '+inf',
-    );
+    const members = await this.redis.zrangebyscore(K_LATENCY, now - WINDOW_MS, '+inf');
 
     // Group by minute bucket
     const buckets = new Map<number, number[]>();
@@ -71,7 +69,10 @@ export class MetricsTracker {
       const ms = parseInt(msStr ?? '0', 10);
       const minute = Math.floor(ts / 60_000) * 60_000;
       let arr = buckets.get(minute);
-      if (!arr) { arr = []; buckets.set(minute, arr); }
+      if (!arr) {
+        arr = [];
+        buckets.set(minute, arr);
+      }
       arr.push(ms);
     }
 
@@ -91,7 +92,10 @@ export class MetricsTracker {
   async getCrawlRate(): Promise<Array<{ ts: string; count: number }>> {
     const now = Date.now();
     const entries = await this.redis.zrangebyscore(
-      K_CRAWL_RATE, now - WINDOW_MS, '+inf', 'WITHSCORES',
+      K_CRAWL_RATE,
+      now - WINDOW_MS,
+      '+inf',
+      'WITHSCORES',
     );
 
     const result: Array<{ ts: string; count: number }> = [];
@@ -112,7 +116,13 @@ export class MetricsTracker {
   /** Returns top queries sorted by count descending. */
   async getTopQueries(limit = 20): Promise<Array<{ q: string; count: number }>> {
     const entries = await this.redis.zrevrangebyscore(
-      K_QUERIES, '+inf', '-inf', 'WITHSCORES', 'LIMIT', '0', String(limit),
+      K_QUERIES,
+      '+inf',
+      '-inf',
+      'WITHSCORES',
+      'LIMIT',
+      '0',
+      String(limit),
     );
     const result: Array<{ q: string; count: number }> = [];
     for (let i = 0; i < entries.length - 1; i += 2) {
